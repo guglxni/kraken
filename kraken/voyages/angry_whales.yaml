@@ -68,7 +68,7 @@ sql: |
         AND inv.due_date < CURRENT_DATE)             AS failed_invoices,
       MAX(inv.created_at)                            AS last_invoice_date
     FROM stripe.invoices inv
-    JOIN whale_customers wc ON wc.customer_id = inv.customer_id
+    INNER JOIN whale_customers wc ON wc.customer_id = inv.customer_id
     WHERE inv.created_at >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
     GROUP BY inv.customer_id
   ),
@@ -99,7 +99,7 @@ sql: |
         2
       )                                              AS error_rate_delta_pct
     FROM sentry.errors e
-    JOIN whale_customers wc ON wc.customer_id = e.customer_id
+    INNER JOIN whale_customers wc ON wc.customer_id = e.customer_id
     WHERE e.timestamp >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
     GROUP BY e.customer_id
   ),
@@ -116,7 +116,7 @@ sql: |
       )                                              AS tickets_prev_7d,
       MAX(c.created_at)                              AS last_ticket_at
     FROM intercom.conversations c
-    JOIN whale_customers wc ON wc.customer_email = c.customer_email
+    INNER JOIN whale_customers wc ON wc.customer_email = c.customer_email
     WHERE c.created_at >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
     GROUP BY c.customer_email
   ),

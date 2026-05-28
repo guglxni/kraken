@@ -72,7 +72,7 @@ SELECT
     s.first_seen,
     s.times_seen
 FROM local_codebase.diffs AS d
-JOIN sentry.issues AS s
+INNER JOIN sentry.issues AS s
     ON s.first_seen >= d.created_at
     AND s.first_seen <= d.created_at + INTERVAL '2 hours'
 WHERE d.created_at >= NOW() - INTERVAL '48 hours'

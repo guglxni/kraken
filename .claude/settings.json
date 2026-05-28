@@ -15,16 +15,25 @@
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "type": "command",
-        "command": "python3 .claude/hooks/audit_tool_use.py",
-        "async": true,
-        "timeout": 5000
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/audit_tool_use.py",
+            "async": true,
+            "timeout": 5000
+          }
+        ]
       }
     ],
     "Stop": [
       {
-        "type": "command",
-        "command": "echo 'Session ended — run: git status && make test' >> .claude/session.log"
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Session ended — run: git status && make test' >> .claude/session.log"
+          }
+        ]
       }
     ]
   }

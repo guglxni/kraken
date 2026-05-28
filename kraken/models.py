@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Any, Literal
-from pydantic import BaseModel, Field
-import uuid
 
+from pydantic import BaseModel, Field
 
 VoyageKind = Literal[
     "hot_deploy",

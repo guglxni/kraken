@@ -11,9 +11,9 @@ SELECT
   COUNT(DISTINCT pd.id)                            AS open_incidents,
   COUNT(DISTINCT v.id)                             AS unpatched_cves
 FROM gmail.messages g
-JOIN intercom.contacts c
+INNER JOIN intercom.contacts c
   ON c.email = g."from"
-JOIN stripe.subscriptions sub
+INNER JOIN stripe.subscriptions sub
   ON sub.customer_email = c.email
 LEFT JOIN sentry.issues s
   ON s.tags->>'org'    = sub.metadata->>'org_id'

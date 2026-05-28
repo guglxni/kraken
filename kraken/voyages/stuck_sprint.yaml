@@ -74,7 +74,7 @@ sql: |
       r.issue_id,
       ARRAY_AGG(r.related_issue_id)                 AS blocked_by_ids
     FROM linear.issue_relations r
-    JOIN sprint_issues si ON si.issue_id = r.issue_id
+    INNER JOIN sprint_issues si ON si.issue_id = r.issue_id
     WHERE r.type = 'blocks'
     GROUP BY r.issue_id
   ),
@@ -91,7 +91,7 @@ sql: |
       pr.draft,
       pr.review_comments                            AS pr_review_comments
     FROM github.pull_requests pr
-    JOIN sprint_issues si
+    INNER JOIN sprint_issues si
       ON pr.body LIKE '%' || si.issue_id || '%'
       OR pr.title LIKE '%' || si.issue_id || '%'
     WHERE pr.state = 'open'
@@ -106,7 +106,7 @@ sql: |
       COUNT(*) FILTER (WHERE r.state = 'CHANGES_REQUESTED')
                                                     AS changes_requested_count
     FROM github.pull_request_reviews r
-    JOIN linked_prs lp ON lp.pr_number = r.pull_number
+    INNER JOIN linked_prs lp ON lp.pr_number = r.pull_number
     GROUP BY r.pull_number
   ),
 

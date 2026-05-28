@@ -10,10 +10,10 @@ The MCP tool name is `sql` (not coral_sql) — Coral v0.4.x exposes:
 
 from __future__ import annotations
 
-import asyncio
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 
 import structlog
 from mcp import ClientSession, StdioServerParameters

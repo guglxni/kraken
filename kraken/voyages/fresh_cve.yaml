@@ -73,9 +73,9 @@ sql: |
       dep.package_version                           AS installed_version,
       dep.package_manager
     FROM local_codebase.files f
-    JOIN local_codebase.dependencies dep
+    INNER JOIN local_codebase.dependencies dep
       ON f.path = dep.manifest_path
-    JOIN vuln_detail vd
+    INNER JOIN vuln_detail vd
       ON dep.package_name = vd.affected_package
       AND dep.package_manager = '{{ params.ecosystem }}'
     WHERE f.path LIKE '%requirements%'
@@ -95,7 +95,7 @@ sql: |
       EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - c.author__date)) / 86400.0
                                                     AS days_since_committed
     FROM github.commits c
-    JOIN local_exposure le ON TRUE
+    CROSS JOIN local_exposure le
     WHERE c.message LIKE '%' || le.package_name || '%'
       OR c.message LIKE '%requirements%'
       OR c.message LIKE '%dependencies%'
@@ -112,7 +112,7 @@ sql: |
       pr.merged_at,
       pr.head__sha
     FROM github.pull_requests pr
-    JOIN introducing_commit ic
+    INNER JOIN introducing_commit ic
       ON pr.head__sha = ic.sha
     LIMIT 1
   ),
@@ -123,7 +123,7 @@ sql: |
       d.created_at                                  AS deployed_at,
       d.environment
     FROM github.deployments d
-    JOIN introducing_commit ic
+    INNER JOIN introducing_commit ic
       ON d.sha = ic.sha
     WHERE d.environment IN ('production', 'prod')
     LIMIT 1
@@ -133,7 +133,7 @@ sql: |
     SELECT
       COUNT(*) > 0                                  AS exploitable_in_production
     FROM sentry.errors e
-    JOIN local_exposure le ON TRUE
+    CROSS JOIN local_exposure le
     WHERE e.exception__type LIKE '%' || le.package_name || '%'
       AND e.timestamp >= CURRENT_TIMESTAMP - INTERVAL '7 days'
   )

@@ -1,22 +1,18 @@
 # sources/webhooks — Webhook Deliveries as SQL
 
 Coral source spec that exposes incoming webhook deliveries as a queryable SQL
-table. A lightweight FastAPI receiver (`kraken/webhook_receiver.py`) runs
-locally on port 9000, validates per-source HMAC signatures, and appends each
-valid delivery to a local JSONL file. Coral's file backend makes that file
-queryable immediately.
+table. A local HMAC-validating receiver listens on an HTTP port, verifies
+per-source signatures, and appends each accepted delivery as a JSONL row to
+disk. Coral's file backend makes that file queryable immediately.
 
-This design enables KRAKEN voyages to JOIN real-time event data (GitHub pushes,
-Sentry alerts, Stripe payment failures, PagerDuty incidents) directly into
-federated SQL queries without polling any external API — and without any data
-leaving the laptop.
+This design enables federated SQL queries over real-time event data (GitHub
+pushes, Sentry alerts, Stripe payment failures, PagerDuty incidents) without
+polling any external API — and without any data leaving the machine.
 
 **Authentication:** None for reads (Coral reads a local file). Per-source HMAC
 secrets are required by the receiver for ingestion.
 
 **Backend:** File (Coral file backend reads JSONL written by the receiver).
-
-**Bounty eligible:** Yes — $100 + $50 charity (see PROPOSAL.md)
 
 ---
 
@@ -31,24 +27,26 @@ secrets are required by the receiver for ingestion.
 
 ## Quick start
 
-### 1. Start the receiver
+### 1. Start a webhook receiver
+
+You need a local HTTP receiver that validates HMAC signatures and appends
+accepted deliveries as JSONL rows to the path configured in `WEBHOOKS_PATH`.
+Each row must conform to the `deliveries` table schema below.
+
+Example using a FastAPI receiver:
 
 ```bash
-# Via kraken CLI
-kraken webhook:serve
-
-# Or directly with uvicorn
-uvicorn kraken.webhook_receiver:app --port 9000
+uvicorn webhook_receiver:app --port 9000
 ```
 
 ### 2. Configure secrets (per source)
 
 ```bash
 # Set the HMAC secret for GitHub webhooks
-export KRAKEN_WEBHOOK_SECRET_GITHUB="your-github-webhook-secret"
+export WEBHOOK_SECRET_GITHUB="your-github-webhook-secret"
 
 # Or use a single shared secret for local testing
-export KRAKEN_WEBHOOK_SECRET="dev-secret"
+export WEBHOOK_SECRET="dev-secret"
 ```
 
 ### 3. Expose publicly (for external providers)
@@ -88,13 +86,29 @@ ORDER BY received_at DESC
 | `pagerduty` | `X-Webhook-Signature` | HMAC-SHA256 |
 | `linear` | `Linear-Signature` | HMAC-SHA256 |
 
-Add new sources by extending `_SOURCE_SIG_HEADERS` in
-`kraken/webhook_receiver.py` and setting the corresponding
-`KRAKEN_WEBHOOK_SECRET_<SOURCE>` environment variable.
+Add new sources by extending your receiver's signature header map and setting
+the corresponding secret environment variable.
 
 ---
 
-## Example: Hot Deploy voyage with webhook trigger
+## JSONL row schema
+
+Each row written to `WEBHOOKS_PATH` must be a JSON object with these fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string (UUID) | Unique delivery ID assigned by the receiver |
+| `source` | string | Originating service name, lowercase (e.g. `github`) |
+| `event_type` | string | Provider event type (e.g. `push`, `issues.opened`) |
+| `payload` | string | Raw JSON body as a string |
+| `received_at` | ISO 8601 string | UTC timestamp when the receiver accepted the delivery |
+| `hmac_valid` | boolean | Whether HMAC signature was verified before writing |
+| `delivery_id` | string | Provider-assigned delivery ID, if present |
+| `content_length_bytes` | integer | Byte length of the raw payload |
+
+---
+
+## Example: correlate push events with deploys and errors
 
 ```sql
 SELECT
@@ -107,7 +121,7 @@ SELECT
     d.created_at                                            AS deploy_time,
     s.title                                                 AS sentry_error
 FROM webhooks.deliveries AS w
-JOIN github.deployments AS d
+INNER JOIN github.deployments AS d
     ON d.sha = json_extract_string(w.payload, '$.after')
 LEFT JOIN sentry.issues AS s
     ON s.first_seen >= w.received_at
@@ -126,6 +140,5 @@ LIMIT 20
 
 - The receiver rejects all deliveries that fail HMAC validation with HTTP 403.
 - Secrets are never logged or included in responses.
-- HMAC comparisons use `hmac.compare_digest` to prevent timing attacks.
-- The JSONL file is local only — it never leaves the laptop unless you
-  explicitly expose it (which would violate CLAUDE.md Rule 6).
+- HMAC comparisons should use constant-time comparison to prevent timing attacks.
+- The JSONL file is local only — it never leaves the machine.

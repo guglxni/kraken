@@ -39,9 +39,9 @@ SELECT
     r.introduced,
     r.fixed
 FROM osv.vulnerabilities AS v
-JOIN osv.affected AS a
+INNER JOIN osv.affected AS a
     ON a.vulnerability_id = v.id
-JOIN osv.ranges AS r
+INNER JOIN osv.ranges AS r
     ON r.vulnerability_id = v.id
 WHERE a.package__ecosystem = 'npm'
   AND v.database_specific__severity = 'CRITICAL'
@@ -65,12 +65,12 @@ SELECT
     f.path                            AS manifest_file,
     v.published
 FROM osv.vulnerabilities AS v
-JOIN osv.affected AS a
+INNER JOIN osv.affected AS a
     ON a.vulnerability_id = v.id
-JOIN osv.ranges AS r
+INNER JOIN osv.ranges AS r
     ON r.vulnerability_id = v.id
     AND r.type = 'SEMVER'
-JOIN local_codebase.files AS f
+INNER JOIN local_codebase.files AS f
     ON f.path LIKE '%package.json%'
     OR f.path LIKE '%requirements.txt%'
     OR f.path LIKE '%Cargo.toml%'
