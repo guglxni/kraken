@@ -1,0 +1,48 @@
+SELECT
+  g.subject,
+  g."from",
+  g.snippet,
+  c.name                                           AS customer,
+  sub.mrr,
+  COUNT(DISTINCT s.id)                             AS active_errors,
+  MAX(m.latency_p99)                               AS current_p99,
+  d.sha                                            AS last_deploy,
+  d.created_at                                     AS deployed_at,
+  COUNT(DISTINCT pd.id)                            AS open_incidents,
+  COUNT(DISTINCT v.id)                             AS unpatched_cves
+FROM gmail.messages g
+JOIN intercom.contacts c
+  ON c.email = g."from"
+JOIN stripe.subscriptions sub
+  ON sub.customer_email = c.email
+LEFT JOIN sentry.issues s
+  ON s.tags->>'org'    = sub.metadata->>'org_id'
+ AND s.first_seen      > NOW() - INTERVAL '{{ hours_back }} hours'
+LEFT JOIN datadog.metrics m
+  ON m.tags->>'org'    = sub.metadata->>'org_id'
+ AND m.timestamp       > NOW() - INTERVAL '1 hour'
+LEFT JOIN github.deployments d
+  ON d.environment = 'production'
+ AND d.created_at  = (
+   SELECT MAX(d2.created_at)
+   FROM github.deployments d2
+   WHERE d2.environment = 'production'
+ )
+LEFT JOIN pagerduty.incidents pd
+  ON pd.status = 'triggered'
+LEFT JOIN osv.vulnerabilities v
+  ON CAST(v.severity_score AS DOUBLE) >= 7.0
+ AND v.published       > NOW() - INTERVAL '7 days'
+WHERE g.internal_date > NOW() - INTERVAL '{{ hours_back }} hours'
+  AND g.label_ids @> ARRAY['INBOX']
+  AND sub.mrr > {{ mrr_threshold }}
+GROUP BY
+  g.subject,
+  g."from",
+  g.snippet,
+  c.name,
+  sub.mrr,
+  d.sha,
+  d.created_at
+ORDER BY sub.mrr DESC
+LIMIT 50;

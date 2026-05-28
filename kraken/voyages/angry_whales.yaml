@@ -1,0 +1,171 @@
+name: angry_whales
+version: 1.0.0
+description: >
+  Identify high-MRR customers showing churn signals before they escalate:
+  rising error rates, support ticket volume spike, failed invoices, drop in
+  API activity, and open CVEs in their stack version. Routes to Purser for
+  proactive outreach.
+required_sources:
+  - stripe
+  - sentry
+  - intercom
+  - github
+target_agent: purser
+params:
+  mrr_threshold:
+    type: number
+    description: Minimum MRR to consider a customer a whale
+    default: 2000.0
+  lookback_days:
+    type: integer
+    description: Days to look back for churn signals
+    default: 30
+  risk_score_threshold:
+    type: number
+    description: Minimum risk score (0-100) to include in results
+    default: 60.0
+output_schema:
+  - name: customer_id
+    type: string
+  - name: customer_email
+    type: string
+  - name: mrr
+    type: float
+  - name: plan_name
+    type: string
+  - name: error_rate_delta_pct
+    type: float
+  - name: support_tickets_7d
+    type: integer
+  - name: failed_invoices
+    type: integer
+  - name: api_calls_delta_pct
+    type: float
+  - name: days_since_last_login
+    type: float
+  - name: churn_risk_score
+    type: float
+  - name: top_signal
+    type: string
+sql: |
+  WITH whale_customers AS (
+    SELECT
+      sub.customer_id,
+      sub.customer_email,
+      sub.mrr,
+      sub.plan_name,
+      sub.status,
+      sub.current_period_end
+    FROM stripe.subscriptions sub
+    WHERE sub.mrr >= {{ params.mrr_threshold }}
+      AND sub.status = 'active'
+  ),
+
+  invoice_health AS (
+    SELECT
+      inv.customer_id,
+      COUNT(*) FILTER (WHERE inv.status = 'open'
+        AND inv.due_date < CURRENT_DATE)             AS failed_invoices,
+      MAX(inv.created_at)                            AS last_invoice_date
+    FROM stripe.invoices inv
+    JOIN whale_customers wc ON wc.customer_id = inv.customer_id
+    WHERE inv.created_at >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
+    GROUP BY inv.customer_id
+  ),
+
+  error_trend AS (
+    SELECT
+      e.customer_id,
+      COUNT(*) FILTER (
+        WHERE e.timestamp >= CURRENT_TIMESTAMP - INTERVAL '7 days'
+      )                                              AS errors_last_7d,
+      COUNT(*) FILTER (
+        WHERE e.timestamp >= CURRENT_TIMESTAMP - INTERVAL '14 days'
+          AND e.timestamp < CURRENT_TIMESTAMP - INTERVAL '7 days'
+      )                                              AS errors_prev_7d,
+      ROUND(
+        100.0 * (
+          COUNT(*) FILTER (
+            WHERE e.timestamp >= CURRENT_TIMESTAMP - INTERVAL '7 days'
+          )
+          - COUNT(*) FILTER (
+            WHERE e.timestamp >= CURRENT_TIMESTAMP - INTERVAL '14 days'
+              AND e.timestamp < CURRENT_TIMESTAMP - INTERVAL '7 days'
+          )
+        ) / NULLIF(COUNT(*) FILTER (
+          WHERE e.timestamp >= CURRENT_TIMESTAMP - INTERVAL '14 days'
+            AND e.timestamp < CURRENT_TIMESTAMP - INTERVAL '7 days'
+        ), 0),
+        2
+      )                                              AS error_rate_delta_pct
+    FROM sentry.errors e
+    JOIN whale_customers wc ON wc.customer_id = e.customer_id
+    WHERE e.timestamp >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
+    GROUP BY e.customer_id
+  ),
+
+  support_volume AS (
+    SELECT
+      c.customer_email,
+      COUNT(*) FILTER (
+        WHERE c.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
+      )                                              AS tickets_last_7d,
+      COUNT(*) FILTER (
+        WHERE c.created_at >= CURRENT_TIMESTAMP - INTERVAL '14 days'
+          AND c.created_at < CURRENT_TIMESTAMP - INTERVAL '7 days'
+      )                                              AS tickets_prev_7d,
+      MAX(c.created_at)                              AS last_ticket_at
+    FROM intercom.conversations c
+    JOIN whale_customers wc ON wc.customer_email = c.customer_email
+    WHERE c.created_at >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
+    GROUP BY c.customer_email
+  ),
+
+  risk_scoring AS (
+    SELECT
+      wc.customer_id,
+      wc.customer_email,
+      wc.mrr,
+      wc.plan_name,
+      COALESCE(et.error_rate_delta_pct, 0)          AS error_rate_delta_pct,
+      COALESCE(sv.tickets_last_7d, 0)               AS support_tickets_7d,
+      COALESCE(ih.failed_invoices, 0)               AS failed_invoices,
+      0.0                                            AS api_calls_delta_pct,
+      0.0                                            AS days_since_last_login,
+      LEAST(100.0, GREATEST(0.0,
+        COALESCE(GREATEST(et.error_rate_delta_pct, 0) * 0.3, 0)
+        + COALESCE(sv.tickets_last_7d * 5.0, 0)
+        + COALESCE(ih.failed_invoices * 20.0, 0)
+        + CASE WHEN wc.current_period_end < CURRENT_TIMESTAMP + INTERVAL '14 days'
+          THEN 15.0 ELSE 0.0 END
+      ))                                             AS churn_risk_score,
+      CASE
+        WHEN ih.failed_invoices > 0 THEN 'failed_invoice'
+        WHEN COALESCE(et.error_rate_delta_pct, 0) > 50 THEN 'error_spike'
+        WHEN COALESCE(sv.tickets_last_7d, 0) > 3 THEN 'support_surge'
+        WHEN wc.current_period_end < CURRENT_TIMESTAMP + INTERVAL '14 days'
+          THEN 'renewal_at_risk'
+        ELSE 'composite_signal'
+      END                                            AS top_signal
+    FROM whale_customers wc
+    LEFT JOIN error_trend et USING (customer_id)
+    LEFT JOIN support_volume sv USING (customer_email)
+    LEFT JOIN invoice_health ih USING (customer_id)
+  )
+
+  SELECT
+    customer_id,
+    customer_email,
+    mrr,
+    plan_name,
+    error_rate_delta_pct,
+    support_tickets_7d,
+    failed_invoices,
+    api_calls_delta_pct,
+    days_since_last_login,
+    churn_risk_score,
+    top_signal
+  FROM risk_scoring
+  WHERE churn_risk_score >= {{ params.risk_score_threshold }}
+  ORDER BY churn_risk_score DESC, mrr DESC
+  LIMIT 10

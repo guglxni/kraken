@@ -1,0 +1,160 @@
+name: fresh_cve
+version: 1.0.0
+description: >
+  Given a new CVE published to OSV.dev, determine whether it affects any
+  deployed dependencies in the local codebase, find the deploy that introduced
+  the vulnerable version, identify the PR author, and surface a remediation
+  path. Routes to Lookout for triage.
+required_sources:
+  - osv
+  - local_codebase
+  - github
+  - sentry
+target_agent: lookout
+params:
+  cve_id:
+    type: string
+    description: CVE or GHSA identifier (e.g. CVE-2024-12345 or GHSA-xxxx-yyyy-zzzz)
+  ecosystem:
+    type: string
+    description: Package ecosystem (PyPI, npm, Go, Maven, RubyGems, Cargo)
+    default: PyPI
+  lookback_days:
+    type: integer
+    description: Days to look back for the introducing commit
+    default: 90
+output_schema:
+  - name: cve_id
+    type: string
+  - name: summary
+    type: string
+  - name: severity_score
+    type: float
+  - name: affected_package
+    type: string
+  - name: vulnerable_version
+    type: string
+  - name: fixed_version
+    type: string
+  - name: file_path
+    type: string
+  - name: introducing_deploy_sha
+    type: string
+  - name: introducing_pr_title
+    type: string
+  - name: pr_author
+    type: string
+  - name: days_since_introduced
+    type: float
+  - name: exploitable_in_production
+    type: boolean
+sql: |
+  WITH vuln_detail AS (
+    SELECT
+      v.id                                          AS cve_id,
+      v.summary,
+      v.severity__score                             AS severity_score,
+      v.affected__package__name                     AS affected_package,
+      v.affected__versions__introduced              AS vulnerable_since_version,
+      v.affected__ranges__fixed                     AS fixed_version,
+      v.published,
+      v.modified
+    FROM osv.vulnerabilities v
+    WHERE v.id = '{{ params.cve_id }}'
+      OR v.aliases LIKE '%{{ params.cve_id }}%'
+    LIMIT 1
+  ),
+
+  local_exposure AS (
+    SELECT
+      f.path                                        AS file_path,
+      f.content,
+      dep.package_name,
+      dep.package_version                           AS installed_version,
+      dep.package_manager
+    FROM local_codebase.files f
+    JOIN local_codebase.dependencies dep
+      ON f.path = dep.manifest_path
+    JOIN vuln_detail vd
+      ON dep.package_name = vd.affected_package
+      AND dep.package_manager = '{{ params.ecosystem }}'
+    WHERE f.path LIKE '%requirements%'
+      OR f.path LIKE '%package.json%'
+      OR f.path LIKE '%go.mod%'
+      OR f.path LIKE '%Cargo.toml%'
+      OR f.path LIKE '%Gemfile%'
+    LIMIT 10
+  ),
+
+  introducing_commit AS (
+    SELECT
+      c.sha,
+      c.author__login                               AS commit_author,
+      c.author__date                                AS committed_at,
+      c.message                                     AS commit_message,
+      EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - c.author__date)) / 86400.0
+                                                    AS days_since_committed
+    FROM github.commits c
+    JOIN local_exposure le ON TRUE
+    WHERE c.message LIKE '%' || le.package_name || '%'
+      OR c.message LIKE '%requirements%'
+      OR c.message LIKE '%dependencies%'
+      AND c.author__date >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
+    ORDER BY c.author__date ASC
+    LIMIT 1
+  ),
+
+  introducing_pr AS (
+    SELECT
+      pr.number                                     AS pr_number,
+      pr.title                                      AS pr_title,
+      pr.user__login                                AS pr_author,
+      pr.merged_at,
+      pr.head__sha
+    FROM github.pull_requests pr
+    JOIN introducing_commit ic
+      ON pr.head__sha = ic.sha
+    LIMIT 1
+  ),
+
+  production_deploy AS (
+    SELECT
+      d.sha                                         AS deploy_sha,
+      d.created_at                                  AS deployed_at,
+      d.environment
+    FROM github.deployments d
+    JOIN introducing_commit ic
+      ON d.sha = ic.sha
+    WHERE d.environment IN ('production', 'prod')
+    LIMIT 1
+  ),
+
+  production_errors AS (
+    SELECT
+      COUNT(*) > 0                                  AS exploitable_in_production
+    FROM sentry.errors e
+    JOIN local_exposure le ON TRUE
+    WHERE e.exception__type LIKE '%' || le.package_name || '%'
+      AND e.timestamp >= CURRENT_TIMESTAMP - INTERVAL '7 days'
+  )
+
+  SELECT
+    vd.cve_id,
+    vd.summary,
+    vd.severity_score,
+    le.package_name                                 AS affected_package,
+    le.installed_version                            AS vulnerable_version,
+    vd.fixed_version,
+    le.file_path,
+    pd.deploy_sha                                   AS introducing_deploy_sha,
+    ip.pr_title                                     AS introducing_pr_title,
+    ip.pr_author,
+    ic.days_since_committed                         AS days_since_introduced,
+    COALESCE(pe.exploitable_in_production, FALSE)   AS exploitable_in_production
+  FROM vuln_detail vd
+  CROSS JOIN local_exposure le
+  LEFT JOIN introducing_commit ic ON TRUE
+  LEFT JOIN introducing_pr ip ON TRUE
+  LEFT JOIN production_deploy pd ON TRUE
+  CROSS JOIN production_errors pe
+  LIMIT 10

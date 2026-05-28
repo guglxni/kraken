@@ -1,0 +1,35 @@
+name: lookout
+version: 0.1.0
+description: >
+  Invoke for voyage V5 (Fresh CVE in Production) and V8 (Stigmergic Self-Reference).
+  Lookout is the Security and Compliance specialist: it joins the OSV vulnerability
+  database with GitHub dependencies, deploys, and Notion security policies to produce
+  a CVSS-weighted incident report that doubles as a SOC 2 / ISO 27001 audit artifact.
+model:
+  provider: anthropic
+  name: claude-sonnet-4-6
+  fallback:
+    - provider: openai
+      name: gpt-4o
+runtime:
+  framework: crewai
+  flow_role: specialist
+context:
+  soul: SOUL.md
+  rules: RULES.md
+  skills:
+    - skills/fresh_cve.md
+    - skills/stigmergic_self_ref.md
+    - skills/cvss_scoring.md
+    - skills/compliance_mapping.md
+    - skills/osv_query_patterns.md
+tools:
+  - tools/coral.yaml
+hooks:
+  pre_invoke:
+    - reef_memory.inject_exemplars
+  post_invoke:
+    - langfuse.log_span
+    - blackboard.persist
+max_turns: 10
+permission_mode: plan

@@ -1,0 +1,49 @@
+tools:
+  - name: coral_sql
+    description: Execute a SQL query against Coral's federated sources
+    parameters:
+      query:
+        type: string
+        description: The SQL query text
+        max_length: 8000
+    restrictions:
+      allowed_sources:
+        - intercom
+        - gmail
+        - stripe
+        - sentry
+        - grafana
+        - slack.messages
+        - posthog
+        - kraken.findings
+
+  - name: composio_draft_email
+    description: Draft (but do not send) an email via Resend in test mode
+    parameters:
+      to:
+        type: string
+        description: Recipient email address
+        validation: email
+      subject:
+        type: string
+        description: Email subject line
+        max_length: 200
+      body:
+        type: string
+        description: Email body (HTML allowed)
+        max_length: 5000
+    requires_anchor_approval: true
+    audit_log: true
+
+  - name: composio_create_intercom_note
+    description: Add an internal note to an Intercom conversation
+    parameters:
+      conversation_id:
+        type: string
+        description: Intercom conversation ID
+      body:
+        type: string
+        description: Note body text
+        max_length: 2000
+    requires_anchor_approval: true
+    audit_log: true

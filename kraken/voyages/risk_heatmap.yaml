@@ -1,0 +1,196 @@
+name: risk_heatmap
+version: 1.0.0
+description: >
+  Cross-source risk scoring across all services, teams, and customers. Combines
+  deploy frequency, error rates, CVE exposure, sprint velocity, and MRR at risk
+  into a single ranked risk heatmap. Used for the morning briefing scheduled job.
+required_sources:
+  - github
+  - sentry
+  - osv
+  - local_codebase
+  - linear
+  - stripe
+target_agent: quartermaster
+params:
+  lookback_days:
+    type: integer
+    description: Rolling window for risk calculations
+    default: 7
+  top_n:
+    type: integer
+    description: Number of top-risk items to return
+    default: 15
+output_schema:
+  - name: entity_type
+    type: string
+  - name: entity_name
+    type: string
+  - name: risk_score
+    type: float
+  - name: risk_category
+    type: string
+  - name: primary_signal
+    type: string
+  - name: mrr_at_risk
+    type: float
+  - name: recommended_action
+    type: string
+sql: |
+  WITH service_error_risk AS (
+    SELECT
+      'service'                                     AS entity_type,
+      e.service                                     AS entity_name,
+      LEAST(100.0, COUNT(*) * 0.5
+        + COALESCE(MAX(e.level_score), 0) * 10.0)  AS risk_score,
+      'error_rate'                                  AS risk_category,
+      CONCAT(
+        CAST(COUNT(*) AS VARCHAR), ' errors, level ',
+        MAX(e.level)
+      )                                             AS primary_signal,
+      0.0                                           AS mrr_at_risk,
+      CASE
+        WHEN COUNT(*) > 100 THEN 'page_oncall'
+        WHEN COUNT(*) > 20  THEN 'investigate'
+        ELSE 'monitor'
+      END                                           AS recommended_action
+    FROM sentry.errors e
+    WHERE e.timestamp >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
+    GROUP BY e.service
+  ),
+
+  deploy_risk AS (
+    SELECT
+      'team'                                        AS entity_type,
+      d.creator_login                               AS entity_name,
+      LEAST(100.0,
+        COUNT(*) FILTER (WHERE d.environment = 'production') * 8.0
+      )                                             AS risk_score,
+      'deploy_frequency'                            AS risk_category,
+      CONCAT(
+        CAST(COUNT(*) FILTER (WHERE d.environment = 'production') AS VARCHAR),
+        ' prod deploys in window'
+      )                                             AS primary_signal,
+      0.0                                           AS mrr_at_risk,
+      CASE
+        WHEN COUNT(*) FILTER (WHERE d.environment = 'production') > 5
+          THEN 'review_deploy_cadence'
+        ELSE 'monitor'
+      END                                           AS recommended_action
+    FROM github.deployments d
+    WHERE d.created_at >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
+    GROUP BY d.creator_login
+  ),
+
+  cve_risk AS (
+    SELECT
+      'package'                                     AS entity_type,
+      dep.package_name                              AS entity_name,
+      LEAST(100.0, MAX(v.severity__score) * 10.0)  AS risk_score,
+      'cve_exposure'                                AS risk_category,
+      CONCAT(
+        CAST(COUNT(DISTINCT v.id) AS VARCHAR),
+        ' CVEs, max CVSS ',
+        CAST(ROUND(MAX(v.severity__score), 1) AS VARCHAR)
+      )                                             AS primary_signal,
+      0.0                                           AS mrr_at_risk,
+      CASE
+        WHEN MAX(v.severity__score) >= 9.0 THEN 'patch_immediately'
+        WHEN MAX(v.severity__score) >= 7.0 THEN 'patch_this_sprint'
+        ELSE 'track_in_backlog'
+      END                                           AS recommended_action
+    FROM osv.vulnerabilities v
+    JOIN local_codebase.dependencies dep
+      ON dep.package_name = v.affected__package__name
+    WHERE v.published >= CURRENT_TIMESTAMP - INTERVAL '90 days'
+    GROUP BY dep.package_name
+  ),
+
+  customer_risk AS (
+    SELECT
+      'customer'                                    AS entity_type,
+      sub.customer_email                            AS entity_name,
+      LEAST(100.0,
+        COALESCE(COUNT(e.id) * 0.3, 0)
+        + CASE WHEN sub.mrr > 10000 THEN 20.0
+               WHEN sub.mrr > 5000 THEN 10.0
+               ELSE 0.0 END
+        + CASE WHEN sub.current_period_end < CURRENT_TIMESTAMP + INTERVAL '14 days'
+               THEN 15.0 ELSE 0.0 END
+      )                                             AS risk_score,
+      'customer_health'                             AS risk_category,
+      CONCAT(
+        CAST(COALESCE(COUNT(e.id), 0) AS VARCHAR),
+        ' errors, MRR $',
+        CAST(ROUND(sub.mrr, 0) AS VARCHAR)
+      )                                             AS primary_signal,
+      sub.mrr                                       AS mrr_at_risk,
+      CASE
+        WHEN sub.mrr > 10000 AND COALESCE(COUNT(e.id), 0) > 50
+          THEN 'exec_escalation'
+        WHEN COALESCE(COUNT(e.id), 0) > 20
+          THEN 'proactive_outreach'
+        ELSE 'monitor'
+      END                                           AS recommended_action
+    FROM stripe.subscriptions sub
+    LEFT JOIN sentry.errors e
+      ON e.customer_id = sub.customer_id
+      AND e.timestamp >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
+    WHERE sub.status = 'active'
+      AND sub.mrr > 1000
+    GROUP BY sub.customer_email, sub.mrr, sub.current_period_end, sub.customer_id
+  ),
+
+  all_risks AS (
+    SELECT
+      entity_type,
+      entity_name,
+      risk_score,
+      risk_category,
+      primary_signal,
+      mrr_at_risk,
+      recommended_action
+    FROM service_error_risk
+    UNION ALL
+    SELECT
+      entity_type,
+      entity_name,
+      risk_score,
+      risk_category,
+      primary_signal,
+      mrr_at_risk,
+      recommended_action
+    FROM deploy_risk
+    UNION ALL
+    SELECT
+      entity_type,
+      entity_name,
+      risk_score,
+      risk_category,
+      primary_signal,
+      mrr_at_risk,
+      recommended_action
+    FROM cve_risk
+    UNION ALL
+    SELECT
+      entity_type,
+      entity_name,
+      risk_score,
+      risk_category,
+      primary_signal,
+      mrr_at_risk,
+      recommended_action
+    FROM customer_risk
+  )
+
+  SELECT
+    entity_type,
+    entity_name,
+    risk_score,
+    risk_category,
+    primary_signal,
+    mrr_at_risk,
+    recommended_action
+  FROM all_risks
+  ORDER BY risk_score DESC, mrr_at_risk DESC
+  LIMIT {{ params.top_n }}

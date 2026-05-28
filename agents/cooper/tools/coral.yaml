@@ -1,0 +1,18 @@
+tools:
+  - name: coral_sql
+    description: Execute a SQL query against Coral's federated sources
+    parameters:
+      query:
+        type: string
+        description: The SQL query text
+        max_length: 8000
+    restrictions:
+      allowed_sources:
+        - github
+        - gitlab
+        - sentry
+        - datadog
+        - launchdarkly
+        - slack.messages
+        - local_codebase
+        - kraken.findings

@@ -1,0 +1,43 @@
+tools:
+  - name: coral_sql
+    description: Execute a SQL query against Coral's federated sources
+    parameters:
+      query:
+        type: string
+        description: The SQL query text
+        max_length: 4000
+    restrictions:
+      max_sources: 2  # Quartermaster only does schema or findings JOIN
+      allowed_sources:
+        - coral.tables
+        - coral.columns
+        - kraken.findings
+        - kraken.plans
+
+  - name: reef_memory_recall
+    description: Recall top-K similar past voyages from LanceDB vector store
+    parameters:
+      query:
+        type: string
+        description: Natural-language description of the current question
+      top_k:
+        type: integer
+        description: Number of similar voyages to retrieve
+        default: 3
+
+  - name: write_plan
+    description: Write a plan to kraken.plans for a specialist agent to execute
+    parameters:
+      target_agent:
+        type: string
+        description: Agent name (helm, cooper, bosun, purser, lookout)
+      kind:
+        type: string
+        description: Voyage kind (must match a registered voyage in kraken/voyages/)
+      params:
+        type: object
+        description: Parameters for the voyage (passed to Jinja2 SQL template)
+      priority:
+        type: string
+        description: Priority level (low, medium, high, critical)
+        default: medium

@@ -1,0 +1,33 @@
+name: quartermaster
+version: 0.1.0
+description: >
+  Invoke when a user asks a natural-language question about engineering health.
+  The Quartermaster classifies the question into a voyage kind, recalls similar
+  past voyages from Reef Memory, writes a plan to kraken.plans, waits for
+  specialist findings, and synthesises a 4-bullet answer.
+model:
+  provider: anthropic
+  name: claude-opus-4-6
+  fallback:
+    - provider: openai
+      name: gpt-4o
+runtime:
+  framework: crewai
+  flow_role: planner
+context:
+  soul: SOUL.md
+  rules: RULES.md
+  skills:
+    - skills/routing.md
+    - skills/synthesis.md
+    - skills/escalation.md
+tools:
+  - tools/coral.yaml
+hooks:
+  pre_invoke:
+    - reef_memory.inject_exemplars
+  post_invoke:
+    - langfuse.log_span
+    - blackboard.persist
+max_turns: 10
+permission_mode: default

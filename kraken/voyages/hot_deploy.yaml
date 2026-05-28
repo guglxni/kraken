@@ -1,0 +1,140 @@
+name: hot_deploy
+version: 1.0.0
+description: >
+  Given a recent production deploy, determine immediately whether it is safe,
+  degrading, or needs rollback. JOINs deploy events against error-rate windows,
+  latency p99, and the PR diff to surface the risk in under 30 seconds.
+required_sources:
+  - github
+  - sentry
+  - datadog
+target_agent: helm
+params:
+  deploy_sha:
+    type: string
+    description: Git SHA of the deploy to inspect (or 'latest' for most recent)
+    default: latest
+  lookback_minutes:
+    type: integer
+    description: Minutes of post-deploy signal window to evaluate
+    default: 30
+output_schema:
+  - name: deploy_sha
+    type: string
+  - name: deployed_at
+    type: string
+  - name: deployer
+    type: string
+  - name: pr_title
+    type: string
+  - name: pr_author
+    type: string
+  - name: error_rate_before
+    type: float
+  - name: error_rate_after
+    type: float
+  - name: error_rate_delta_pct
+    type: float
+  - name: p99_latency_before_ms
+    type: float
+  - name: p99_latency_after_ms
+    type: float
+  - name: verdict
+    type: string
+sql: |
+  WITH target_deploy AS (
+    SELECT
+      d.sha,
+      d.ref,
+      d.created_at                                  AS deployed_at,
+      d.creator_login                               AS deployer,
+      d.environment
+    FROM github.deployments d
+    WHERE (
+      '{{ params.deploy_sha }}' = 'latest'
+      OR d.sha = '{{ params.deploy_sha }}'
+    )
+      AND d.environment IN ('production', 'prod')
+    ORDER BY d.created_at DESC
+    LIMIT 1
+  ),
+
+  linked_pr AS (
+    SELECT
+      pr.number                                     AS pr_number,
+      pr.title                                      AS pr_title,
+      pr.user__login                                AS pr_author,
+      pr.additions,
+      pr.deletions,
+      pr.changed_files
+    FROM github.pull_requests pr
+    JOIN target_deploy td
+      ON pr.head__sha = td.sha
+    LIMIT 1
+  ),
+
+  error_windows AS (
+    SELECT
+      COUNT(*) FILTER (
+        WHERE e.timestamp >= td.deployed_at - INTERVAL '{{ params.lookback_minutes }} minutes'
+          AND e.timestamp < td.deployed_at
+      ) * 1.0 / NULLIF({{ params.lookback_minutes }}, 0)
+                                                    AS error_rate_before,
+      COUNT(*) FILTER (
+        WHERE e.timestamp >= td.deployed_at
+          AND e.timestamp < td.deployed_at + INTERVAL '{{ params.lookback_minutes }} minutes'
+      ) * 1.0 / NULLIF({{ params.lookback_minutes }}, 0)
+                                                    AS error_rate_after
+    FROM sentry.errors e
+    CROSS JOIN target_deploy td
+    WHERE e.timestamp >= td.deployed_at - INTERVAL '{{ params.lookback_minutes }} minutes'
+      AND e.timestamp < td.deployed_at + INTERVAL '{{ params.lookback_minutes }} minutes'
+  ),
+
+  latency_windows AS (
+    SELECT
+      AVG(m.value) FILTER (
+        WHERE m.timestamp >= td.deployed_at - INTERVAL '{{ params.lookback_minutes }} minutes'
+          AND m.timestamp < td.deployed_at
+          AND m.metric_name = 'request.p99_ms'
+      )                                             AS p99_latency_before_ms,
+      AVG(m.value) FILTER (
+        WHERE m.timestamp >= td.deployed_at
+          AND m.timestamp < td.deployed_at + INTERVAL '{{ params.lookback_minutes }} minutes'
+          AND m.metric_name = 'request.p99_ms'
+      )                                             AS p99_latency_after_ms
+    FROM datadog.metrics m
+    CROSS JOIN target_deploy td
+    WHERE m.timestamp >= td.deployed_at - INTERVAL '{{ params.lookback_minutes }} minutes'
+      AND m.timestamp < td.deployed_at + INTERVAL '{{ params.lookback_minutes }} minutes'
+      AND m.metric_name = 'request.p99_ms'
+  )
+
+  SELECT
+    td.sha                                          AS deploy_sha,
+    td.deployed_at,
+    td.deployer,
+    lp.pr_title,
+    lp.pr_author,
+    ew.error_rate_before,
+    ew.error_rate_after,
+    ROUND(
+      100.0 * (ew.error_rate_after - ew.error_rate_before)
+        / NULLIF(ew.error_rate_before, 0),
+      2
+    )                                               AS error_rate_delta_pct,
+    lw.p99_latency_before_ms,
+    lw.p99_latency_after_ms,
+    CASE
+      WHEN ew.error_rate_after > ew.error_rate_before * 1.5
+        OR lw.p99_latency_after_ms > lw.p99_latency_before_ms * 1.3
+        THEN 'ROLLBACK_RECOMMENDED'
+      WHEN ew.error_rate_after > ew.error_rate_before * 1.2
+        THEN 'MONITOR_CLOSELY'
+      ELSE 'SAFE'
+    END                                             AS verdict
+  FROM target_deploy td
+  CROSS JOIN error_windows ew
+  CROSS JOIN latency_windows lw
+  LEFT JOIN linked_pr lp ON TRUE
+  LIMIT 1
