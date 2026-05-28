@@ -1,0 +1,393 @@
+version: "3.9"
+
+# ── KRAKEN Infrastructure Stack ───────────────────────────────────────────────
+# Supabase (Auth + Postgres + Realtime + Storage)
+# Langfuse (LLM observability)
+# PostHog (product analytics — self-hosted)
+# Trigger.dev (scheduled jobs)
+#
+# Prerequisites:
+#   cp infra/.env.example infra/.env
+#   fill in all secrets in infra/.env before running docker compose up -d
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+networks:
+  kraken-net:
+    driver: bridge
+
+volumes:
+  supabase-db-data:
+  supabase-storage-data:
+  langfuse-db-data:
+  posthog-db-data:
+  posthog-redis-data:
+  trigger-db-data:
+
+services:
+
+  # ── Supabase: Postgres ────────────────────────────────────────────────────
+  supabase-db:
+    image: supabase/postgres:15.8.1.4
+    container_name: kraken-supabase-db
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+      JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      - supabase-db-data:/var/lib/postgresql/data
+      - ./supabase/migrations:/docker-entrypoint-initdb.d/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Supabase: GoTrue (Auth) ────────────────────────────────────────────────
+  supabase-auth:
+    image: supabase/gotrue:v2.143.0
+    container_name: kraken-supabase-auth
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      GOTRUE_API_HOST: "0.0.0.0"
+      GOTRUE_API_PORT: "9999"
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: "postgresql://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db:5432/postgres"
+      GOTRUE_SITE_URL: "http://localhost:3002"
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_JWT_EXP: "3600"
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_SMTP_ADMIN_EMAIL: "admin@kraken.local"
+      GOTRUE_SMTP_HOST: "inbucket"
+      GOTRUE_SMTP_PORT: "2500"
+      GOTRUE_SMTP_SENDER_NAME: "KRAKEN"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_LOG_LEVEL: "INFO"
+      GOTRUE_OPERATOR_TOKEN: ${SERVICE_ROLE_KEY}
+      API_EXTERNAL_URL: "http://localhost:54321"
+
+  # ── Supabase: PostgREST ────────────────────────────────────────────────────
+  supabase-rest:
+    image: postgrest/postgrest:v12.0.2
+    container_name: kraken-supabase-rest
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: "postgresql://authenticator:${POSTGRES_PASSWORD}@supabase-db:5432/postgres"
+      PGRST_DB_SCHEMAS: "public,storage,graphql_public"
+      PGRST_DB_ANON_ROLE: "anon"
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: "3600"
+
+  # ── Supabase: Realtime ────────────────────────────────────────────────────
+  supabase-realtime:
+    image: supabase/realtime:v2.28.32
+    container_name: kraken-supabase-realtime
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      PORT: "4000"
+      DB_HOST: supabase-db
+      DB_PORT: "5432"
+      DB_USER: supabase_admin
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: postgres
+      DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
+      DB_ENC_KEY: supabaserealtime
+      API_JWT_SECRET: ${JWT_SECRET}
+      FLY_ALLOC_ID: fly123
+      FLY_APP_NAME: realtime
+      SECRET_KEY_BASE: ${JWT_SECRET}
+      ERL_AFLAGS: -proto_dist inet_tcp
+      ENABLE_TAILSCALE: "false"
+      DNS_NODES: "''"
+
+  # ── Supabase: Storage ─────────────────────────────────────────────────────
+  supabase-storage:
+    image: supabase/storage-api:v1.0.6
+    container_name: kraken-supabase-storage
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://supabase-rest:3000
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: "postgresql://supabase_storage_admin:${POSTGRES_PASSWORD}@supabase-db:5432/postgres"
+      FILE_SIZE_LIMIT: "52428800"
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: local
+      GLOBAL_S3_BUCKET: stub
+      ENABLE_IMAGE_TRANSFORMATION: "true"
+      IMGPROXY_URL: http://supabase-imgproxy:5001
+    volumes:
+      - supabase-storage-data:/var/lib/storage
+
+  # ── Supabase: Image Proxy ─────────────────────────────────────────────────
+  supabase-imgproxy:
+    image: darthsim/imgproxy:v3.8.0
+    container_name: kraken-supabase-imgproxy
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    environment:
+      IMGPROXY_BIND: ":5001"
+      IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
+      IMGPROXY_USE_ETAG: "true"
+      IMGPROXY_ENABLE_WEBP_DETECTION: "true"
+    volumes:
+      - supabase-storage-data:/var/lib/storage:ro
+
+  # ── Supabase: Kong API Gateway ────────────────────────────────────────────
+  supabase-kong:
+    image: kong:2.8.1
+    container_name: kraken-supabase-kong
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    ports:
+      - "54321:8000"   # Kong HTTP — Supabase API
+      - "54322:8443"   # Kong HTTPS
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yaml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: "160k"
+      KONG_NGINX_PROXY_PROXY_BUFFERS: "64 160k"
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+    volumes:
+      - ./supabase/kong.yaml:/var/lib/kong/kong.yaml:ro
+
+  # ── Supabase: Meta (Studio backend) ──────────────────────────────────────
+  supabase-meta:
+    image: supabase/postgres-meta:v0.83.0
+    container_name: kraken-supabase-meta
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      PG_META_PORT: "8080"
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: "5432"
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: supabase_admin
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+
+  # ── Supabase: Studio ──────────────────────────────────────────────────────
+  supabase-studio:
+    image: supabase/studio:20240422-5cf8f30
+    container_name: kraken-supabase-studio
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    ports:
+      - "54323:3000"   # Supabase Studio UI
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      STUDIO_PG_META_URL: http://supabase-meta:8080
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DEFAULT_ORGANIZATION_NAME: KRAKEN
+      DEFAULT_PROJECT_NAME: kraken-local
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_PUBLIC_URL: http://localhost:54321
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+
+  # ── Langfuse: Postgres ────────────────────────────────────────────────────
+  langfuse-db:
+    image: postgres:16-alpine
+    container_name: kraken-langfuse-db
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Langfuse: Server ──────────────────────────────────────────────────────
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: kraken-langfuse
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    ports:
+      - "3000:3000"    # Langfuse UI + API
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://langfuse:${POSTGRES_PASSWORD}@langfuse-db:5432/langfuse"
+      NEXTAUTH_URL: "http://localhost:3000"
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      SALT: ${SALT}
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_DEFAULT_PROJECT_NAME: "kraken"
+      LANGFUSE_DEFAULT_PROJECT_ROLE: "OWNER"
+      # Initial user is created via first signup — no hardcoded creds
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/public/health | grep -q ok"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ── PostHog: Postgres ─────────────────────────────────────────────────────
+  posthog-db:
+    image: postgres:15-alpine
+    container_name: kraken-posthog-db
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: posthog
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: posthog
+    volumes:
+      - posthog-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U posthog"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── PostHog: Redis (required by PostHog internals — not exposed to agents)
+  posthog-redis:
+    image: redis:7-alpine
+    container_name: kraken-posthog-redis
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    volumes:
+      - posthog-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── PostHog: Web + Worker ─────────────────────────────────────────────────
+  posthog:
+    image: posthog/posthog:release-1.43.0
+    container_name: kraken-posthog
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    ports:
+      - "8000:8000"    # PostHog UI
+    depends_on:
+      posthog-db:
+        condition: service_healthy
+      posthog-redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://posthog:${POSTGRES_PASSWORD}@posthog-db:5432/posthog"
+      REDIS_URL: "redis://posthog-redis:6379"
+      SECRET_KEY: ${POSTHOG_SECRET_KEY}
+      SITE_URL: "http://localhost:8000"
+      DISABLE_SECURE_SSL_REDIRECT: "true"
+      IS_BEHIND_PROXY: "false"
+      TRUST_ALL_PROXIES: "false"
+      CAPTURE_INTERNAL_METRICS: "false"
+      SELF_CAPTURE: "false"
+      DISABLE_TELEMETRY: "true"
+      EMAIL_ENABLED: "false"
+
+  # ── Trigger.dev: Postgres ─────────────────────────────────────────────────
+  trigger-db:
+    image: postgres:16-alpine
+    container_name: kraken-trigger-db
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: trigger
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: trigger
+    volumes:
+      - trigger-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trigger"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Trigger.dev: Web Server ────────────────────────────────────────────────
+  trigger:
+    image: ghcr.io/triggerdotdev/trigger.dev:v3-latest
+    container_name: kraken-trigger
+    restart: unless-stopped
+    networks: [kraken-net]
+    logging: *default-logging
+    ports:
+      - "3001:3000"    # Trigger.dev UI
+    depends_on:
+      trigger-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://trigger:${POSTGRES_PASSWORD}@trigger-db:5432/trigger"
+      DIRECT_URL: "postgresql://trigger:${POSTGRES_PASSWORD}@trigger-db:5432/trigger"
+      SESSION_SECRET: ${TRIGGER_SESSION_SECRET}
+      MAGIC_LINK_SECRET: ${TRIGGER_MAGIC_LINK_SECRET}
+      ENCRYPTION_KEY: ${TRIGGER_ENCRYPTION_KEY}
+      BOOTSTRAP_ENABLED: "true"
+      RUNTIME_PLATFORM: "docker-compose"
+      DEV_OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:3001"
+      APP_ORIGIN: "http://localhost:3001"
+      LOGIN_ORIGIN: "http://localhost:3001"
+      REMIX_APP_PORT: "3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/healthcheck | grep -q ok"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
