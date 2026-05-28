@@ -1,0 +1,86 @@
+# ── Coral Source Spec: kraken_findings ────────────────────────────────────────
+# DSL v3 file-backend source that registers the KRAKEN agent findings Parquet
+# file as a queryable SQL table.
+#
+# Agents write findings via kraken.blackboard.write_finding().
+# Agents read findings by issuing coral_sql("SELECT ... FROM kraken_findings.findings ...").
+#
+# Every voyage writes at least one finding so that downstream agents can JOIN
+# on voyage_id across the blackboard and all other sources.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: kraken_findings
+version: 0.1.0
+dsl_version: 3
+description: >
+  KRAKEN agent findings blackboard — Parquet file registered as a SQL table.
+  Agents write structured findings; other agents JOIN findings via Coral SQL.
+
+backend: file
+
+inputs:
+  FINDINGS_PATH:
+    kind: variable
+    description: Absolute or ~ path to the findings Parquet file on the host filesystem.
+    default: "~/.kraken/findings.parquet"
+
+tables:
+  - name: findings
+    description: >
+      One row per agent finding. A finding is a structured observation produced by
+      an agent during a voyage — e.g. a detected anomaly, a risk score, a
+      recommended action. Findings are the primary cross-agent communication
+      channel (stigmergic blackboard pattern).
+    path: "{{input.FINDINGS_PATH}}"
+    format: parquet
+    columns:
+      - name: finding_id
+        type: Utf8
+        description: UUID v4 — unique identifier for this finding row.
+        nullable: false
+
+      - name: voyage_id
+        type: Utf8
+        description: UUID v4 — the voyage execution that produced this finding. Used to correlate findings across agents.
+        nullable: false
+
+      - name: agent
+        type: Utf8
+        description: >
+          Name of the agent that wrote this finding.
+          One of: quartermaster, helm, cooper, bosun, purser, lookout.
+        nullable: false
+
+      - name: kind
+        type: Utf8
+        description: >
+          Semantic type of finding. Determines how the Quartermaster routes it.
+          Examples: incident, cve, sprint_risk, churn_signal, compliance_gap, plan.
+        nullable: false
+
+      - name: payload
+        type: Utf8
+        description: >
+          JSON-serialized finding payload. Schema is agent- and kind-specific.
+          Must be valid JSON. Downstream agents parse with json_extract().
+        nullable: false
+
+      - name: severity
+        type: Utf8
+        description: >
+          Optional severity level: critical, high, medium, low, info.
+          NULL if the finding kind does not have a severity dimension.
+        nullable: true
+
+      - name: source_ref
+        type: Utf8
+        description: >
+          Optional reference to the Coral source that produced the underlying data.
+          Format: "<source_name>.<table_name>/<primary_key>".
+          Example: "sentry.events/EVT-12345".
+        nullable: true
+
+      - name: created_at
+        type: Timestamp
+        description: UTC timestamp when this finding was written to the blackboard.
+        nullable: false

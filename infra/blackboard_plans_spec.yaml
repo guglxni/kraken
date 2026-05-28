@@ -1,0 +1,98 @@
+# ── Coral Source Spec: kraken_plans ───────────────────────────────────────────
+# DSL v3 file-backend source that registers the KRAKEN agent plans Parquet
+# file as a queryable SQL table.
+#
+# The Quartermaster writes plans; specialist agents read them to know what
+# actions they have been tasked with executing.
+#
+# Plans differ from findings in that a plan is forward-looking (an instruction
+# to take an action) whereas a finding is backward-looking (an observation).
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: kraken_plans
+version: 0.1.0
+dsl_version: 3
+description: >
+  KRAKEN agent plans blackboard — Parquet file registered as a SQL table.
+  The Quartermaster writes plans; specialist agents query their pending plans
+  and update status upon completion.
+
+backend: file
+
+inputs:
+  PLANS_PATH:
+    kind: variable
+    description: Absolute or ~ path to the plans Parquet file on the host filesystem.
+    default: "~/.kraken/plans.parquet"
+
+tables:
+  - name: plans
+    description: >
+      One row per agent plan. A plan is a structured instruction produced by
+      the Quartermaster directing a specialist agent to perform a specific
+      write-side action (e.g. create a Linear ticket, post a Slack message).
+      Agents poll their pending plans via Coral SQL and mark them done when complete.
+    path: "{{input.PLANS_PATH}}"
+    format: parquet
+    columns:
+      - name: plan_id
+        type: Utf8
+        description: UUID v4 — unique identifier for this plan row.
+        nullable: false
+
+      - name: voyage_id
+        type: Utf8
+        description: UUID v4 — the voyage execution that generated this plan. Used to correlate plans with the findings that triggered them.
+        nullable: false
+
+      - name: kind
+        type: Utf8
+        description: >
+          Semantic type of plan. Determines which Composio MCP tool to invoke.
+          Examples: create_linear_ticket, post_slack_message, send_email, create_pr_comment.
+        nullable: false
+
+      - name: target_agent
+        type: Utf8
+        description: >
+          Name of the agent that should execute this plan.
+          One of: helm, cooper, bosun, purser, lookout.
+          The Quartermaster never executes plans — it only writes them.
+        nullable: false
+
+      - name: priority
+        type: Int32
+        description: >
+          Execution priority. Lower numbers run first.
+          1 = critical (page-level), 2 = high, 3 = normal, 4 = low.
+        nullable: false
+
+      - name: params
+        type: Utf8
+        description: >
+          JSON-serialized parameters for the Composio MCP tool call.
+          Schema varies by kind. Must be valid JSON.
+        nullable: false
+
+      - name: status
+        type: Utf8
+        description: >
+          Current execution status: pending, in_progress, done, failed.
+          Agents update this field after attempting execution.
+        nullable: false
+
+      - name: error
+        type: Utf8
+        description: >
+          Human-readable error message if status = failed. NULL otherwise.
+        nullable: true
+
+      - name: created_at
+        type: Timestamp
+        description: UTC timestamp when the Quartermaster wrote this plan.
+        nullable: false
+
+      - name: executed_at
+        type: Timestamp
+        description: UTC timestamp when the target agent last updated the status. NULL if still pending.
+        nullable: true

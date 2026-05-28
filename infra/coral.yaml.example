@@ -1,0 +1,53 @@
+# ── Coral Configuration — KRAKEN ─────────────────────────────────────────────
+# Copy to ~/.kraken/coral.yaml and adjust paths before starting agents.
+# Coral reads this file at startup to register all data sources.
+# All sources must be registered here before they can be queried with coral_sql().
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: "1"
+
+# MCP server settings
+server:
+  port: 6006
+  host: "127.0.0.1"
+  log_level: "info"
+
+# Sources registered with Coral
+# Each source exposes one or more SQL tables accessible via coral_sql()
+sources:
+
+  # ── OSV (Open Source Vulnerabilities) ─────────────────────────────────────
+  - name: osv
+    spec: ./sources/osv/manifest.yaml
+    inputs:
+      # No secrets required — OSV is a public API
+      OSV_BASE_URL: "https://api.osv.dev/v1"
+
+  # ── Local Codebase (filesystem source for the KRAKEN repo itself) ──────────
+  - name: local_codebase
+    spec: ./sources/local-codebase/manifest.yaml
+    inputs:
+      CODEBASE_ROOT: "."
+
+  # ── Webhooks (inbound event stream from CI, Sentry, etc.) ──────────────────
+  - name: webhooks
+    spec: ./sources/webhooks/manifest.yaml
+    inputs:
+      WEBHOOK_DB_PATH: "~/.kraken/webhooks.duckdb"
+
+  # ── KRAKEN Agent Findings Blackboard ──────────────────────────────────────
+  - name: kraken_findings
+    spec: ./infra/blackboard_findings_spec.yaml
+    inputs:
+      FINDINGS_PATH: "~/.kraken/findings.parquet"
+
+  # ── KRAKEN Agent Plans Blackboard ─────────────────────────────────────────
+  - name: kraken_plans
+    spec: ./infra/blackboard_plans_spec.yaml
+    inputs:
+      PLANS_PATH: "~/.kraken/plans.parquet"
+
+# Credential store — secrets resolved at runtime from environment variables
+# Never hardcode secrets here. Use environment variables or Infisical.
+credentials:
+  resolver: "env"

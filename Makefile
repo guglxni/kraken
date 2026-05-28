@@ -1,4 +1,4 @@
-.PHONY: install test lint type-check security-check rust-checks ci clean
+.PHONY: install test lint type-check security-check rust-checks ci clean infra-up infra-down infra-logs infra-reset
 
 # ── Install ──────────────────────────────────────────────────────────────────
 
@@ -75,3 +75,17 @@ clean:
 	find . -name "*.pyc" -delete 2>/dev/null; true
 	rm -rf .pytest_cache .mypy_cache .ruff_cache
 	cd ui && rm -rf .next out
+
+# ── Infrastructure ────────────────────────────────────────────────────────────
+
+infra-up:
+	cd infra && docker compose up -d
+
+infra-down:
+	cd infra && docker compose down
+
+infra-logs:
+	cd infra && docker compose logs -f
+
+infra-reset:
+	cd infra && docker compose down -v
