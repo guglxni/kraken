@@ -18,7 +18,7 @@ test-sources:
 	uv run pytest tests/sources/ -v
 
 test-agents:
-	uv run pytest tests/agents/ -v
+	uv run pytest agents/bosun/tests/ agents/cooper/tests/ agents/helm/tests/ agents/lookout/tests/ agents/purser/tests/ agents/quartermaster/tests/ -v
 
 test-e2e:
 	uv run pytest tests/e2e/ -v
