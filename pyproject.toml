@@ -1,0 +1,89 @@
+[project]
+name = "kraken"
+version = "0.1.0"
+description = "One SQL query. Every system. Every voyage. — Canonical developer surface for Coral."
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+dependencies = [
+    # Agent framework
+    "crewai>=0.80.0",
+    "pydantic-ai>=0.0.14",
+    "pydantic>=2.9.0",
+    # MCP client (for Coral stdio transport)
+    "mcp>=1.6.0",
+    # Async HTTP
+    "httpx>=0.27.0",
+    # Data
+    "pyarrow>=17.0.0",
+    "duckdb>=1.1.0",
+    # Memory
+    "mem0ai>=0.1.0",
+    "fastembed>=0.3.0",
+    "lancedb>=0.14.0",
+    # Observability
+    "opentelemetry-sdk>=1.27.0",
+    "opentelemetry-exporter-otlp>=1.27.0",
+    "openinference-instrumentation-anthropic>=0.1.0",
+    "openinference-semantic-conventions>=0.1.0",
+    # SQL
+    "sqlglot>=25.0.0",
+    "sqllineage>=1.5.0",
+    "jinja2>=3.1.4",
+    # CLI
+    "click>=8.1.7",
+    "rich>=13.9.0",
+    # API
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.31.0",
+    "sse-starlette>=2.1.0",
+    # Auth / Storage
+    "supabase>=2.9.0",
+    # Anthropic
+    "anthropic>=0.40.0",
+    # Secrets / Config
+    "python-dotenv>=1.0.1",
+    # LiteLLM gateway
+    "litellm>=1.52.0",
+    # Structlog
+    "structlog>=24.4.0",
+]
+
+[project.scripts]
+kraken = "kraken.cli:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-snapshot>=0.9.0",
+    "mypy>=1.13.0",
+    "ruff>=0.7.0",
+    "bandit>=1.8.0",
+    "vcrpy>=6.0.0",
+    "httpx>=0.27.0",
+    "types-pyyaml",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["kraken"]
