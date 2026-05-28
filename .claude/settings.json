@@ -1,0 +1,31 @@
+{
+  "defaultMode": "plan",
+  "env": {
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80"
+  },
+  "permissions": {
+    "deny": [
+      "Bash(rm -rf*)",
+      "Bash(git push --force*)",
+      "Write(.env*)",
+      "Write(infra/volumes/*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "type": "command",
+        "command": "python3 .claude/hooks/audit_tool_use.py",
+        "async": true,
+        "timeout": 5000
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "echo 'Session ended — run: git status && make test' >> .claude/session.log"
+      }
+    ]
+  }
+}
