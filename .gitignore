@@ -1,0 +1,56 @@
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V3
+.Trashes
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.uv/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.parquet
+!tests/fixtures/*.parquet
+
+# Node
+node_modules/
+.next/
+.turbo/
+out/
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.secret
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Coral
+.coral/
+
+# Langfuse / PostHog / Supabase local
+infra/volumes/
+
+# Test artifacts
+htmlcov/
+.coverage
+coverage.xml
+
+# Archives
+files.zip
+
+# Build
+target/
