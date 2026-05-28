@@ -1,0 +1,28 @@
+{
+  "voyage": "incident_summary",
+  "voyage_id": "demo-v2-incident-001",
+  "params": {
+    "incident_id": "SENTRY-8841",
+    "lookback_hours": 4
+  },
+  "rows": [
+    {
+      "incident_id": "SENTRY-8841",
+      "title": "TypeError: Cannot read properties of undefined (reading 'subscription') in /api/customer/dashboard",
+      "started_at": "2026-05-28T09:16:08Z",
+      "suspect_deploy_sha": "a3f8c21d9e4b6f0c",
+      "suspect_pr_number": 2847,
+      "suspect_pr_title": "feat: optimize N+1 query in customer dashboard endpoint",
+      "pr_author": "priya-singh",
+      "error_spike_count": 1247,
+      "affected_customer_count": 23,
+      "affected_mrr_total": 312450.0,
+      "p99_latency_ms": 4823.5,
+      "third_party_outage_detected": false
+    }
+  ],
+  "row_count": 1,
+  "cache_hit": false,
+  "latency_ms": 612.8,
+  "sources_queried": ["sentry", "github", "datadog", "stripe"]
+}

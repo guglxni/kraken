@@ -1,0 +1,27 @@
+{
+  "voyage": "exec_escalation",
+  "voyage_id": "demo-v6-acme-001",
+  "params": {
+    "hours_back": 6,
+    "mrr_threshold": 10000
+  },
+  "rows": [
+    {
+      "subject": "Re: Production is down — our engineers are blocked",
+      "from": "sarah.chen@acme.io",
+      "snippet": "This is the third time this week. Our team's velocity has dropped to zero. I need to escalate this to my CEO if it's not resolved by EOD.",
+      "customer": "Acme Corporation",
+      "mrr": 47500.0,
+      "active_errors": 1247,
+      "current_p99": 4823.5,
+      "last_deploy": "a3f8c21d9e4b6f0c",
+      "deployed_at": "2026-05-28T09:14:22Z",
+      "open_incidents": 2,
+      "unpatched_cves": 3
+    }
+  ],
+  "row_count": 1,
+  "cache_hit": false,
+  "latency_ms": 847.3,
+  "sources_queried": ["gmail", "intercom", "stripe", "sentry", "datadog", "github", "pagerduty", "osv"]
+}

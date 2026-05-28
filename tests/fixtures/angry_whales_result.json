@@ -1,0 +1,54 @@
+{
+  "voyage": "angry_whales",
+  "voyage_id": "demo-v4-whales-001",
+  "params": {
+    "mrr_threshold": 2000.0,
+    "lookback_days": 30,
+    "risk_score_threshold": 60.0
+  },
+  "rows": [
+    {
+      "customer_id": "cus_acme_001",
+      "customer_email": "sarah.chen@acme.io",
+      "mrr": 47500.0,
+      "plan_name": "Enterprise",
+      "error_rate_delta_pct": 1486.05,
+      "support_tickets_7d": 7,
+      "failed_invoices": 0,
+      "api_calls_delta_pct": -34.2,
+      "days_since_last_login": 2.1,
+      "churn_risk_score": 94.2,
+      "top_signal": "error_spike"
+    },
+    {
+      "customer_id": "cus_globex_002",
+      "customer_email": "ops@globex.com",
+      "mrr": 18750.0,
+      "plan_name": "Growth",
+      "error_rate_delta_pct": 23.4,
+      "support_tickets_7d": 4,
+      "failed_invoices": 1,
+      "api_calls_delta_pct": -18.7,
+      "days_since_last_login": 8.3,
+      "churn_risk_score": 72.8,
+      "top_signal": "failed_invoice"
+    },
+    {
+      "customer_id": "cus_initech_003",
+      "customer_email": "admin@initech.co",
+      "mrr": 12400.0,
+      "plan_name": "Growth",
+      "error_rate_delta_pct": 8.1,
+      "support_tickets_7d": 5,
+      "failed_invoices": 0,
+      "api_calls_delta_pct": -8.2,
+      "days_since_last_login": 1.4,
+      "churn_risk_score": 61.3,
+      "top_signal": "support_surge"
+    }
+  ],
+  "row_count": 3,
+  "cache_hit": false,
+  "latency_ms": 531.7,
+  "sources_queried": ["stripe", "sentry", "intercom", "github"]
+}

@@ -1,0 +1,29 @@
+{
+  "voyage": "fresh_cve",
+  "voyage_id": "demo-v5-cve-001",
+  "params": {
+    "cve_id": "CVE-2024-45337",
+    "ecosystem": "PyPI",
+    "lookback_days": 90
+  },
+  "rows": [
+    {
+      "cve_id": "CVE-2024-45337",
+      "summary": "Misuse of ServerConfig.PublicKeyCallback may cause authorization bypass in golang.org/x/crypto",
+      "severity_score": 9.1,
+      "affected_package": "paramiko",
+      "vulnerable_version": "3.4.0",
+      "fixed_version": "3.5.0",
+      "file_path": "requirements.txt",
+      "introducing_deploy_sha": "b7d2e9f1a4c8",
+      "introducing_pr_title": "chore: bump paramiko from 3.3.0 to 3.4.0",
+      "pr_author": "dependabot[bot]",
+      "days_since_introduced": 47.3,
+      "exploitable_in_production": false
+    }
+  ],
+  "row_count": 1,
+  "cache_hit": false,
+  "latency_ms": 389.4,
+  "sources_queried": ["osv", "local_codebase", "github", "sentry"]
+}

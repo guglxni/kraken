@@ -1,0 +1,27 @@
+{
+  "voyage": "hot_deploy",
+  "voyage_id": "demo-v1-deploy-001",
+  "params": {
+    "deploy_sha": "a3f8c21d9e4b6f0c",
+    "lookback_minutes": 30
+  },
+  "rows": [
+    {
+      "deploy_sha": "a3f8c21d9e4b6f0c",
+      "deployed_at": "2026-05-28T09:14:22Z",
+      "deployer": "priya-singh",
+      "pr_title": "feat: optimize N+1 query in customer dashboard endpoint",
+      "pr_author": "priya-singh",
+      "error_rate_before": 0.43,
+      "error_rate_after": 6.82,
+      "error_rate_delta_pct": 1486.05,
+      "p99_latency_before_ms": 312.4,
+      "p99_latency_after_ms": 4823.5,
+      "verdict": "ROLLBACK_RECOMMENDED"
+    }
+  ],
+  "row_count": 1,
+  "cache_hit": false,
+  "latency_ms": 423.1,
+  "sources_queried": ["github", "sentry", "datadog"]
+}

@@ -156,6 +156,27 @@ def voyage_compile(voyage_name: str, params: str | None) -> None:
     console.print(compiled.sql)
 
 
+# ── bench command ────────────────────────────────────────────────────────────
+
+@cli.command("bench")
+@click.argument("voyage_name", default="exec_escalation")
+@click.option("--params", default=None, help="JSON params for the voyage")
+def bench(voyage_name: str, params: str | None) -> None:
+    """Bench-O-Bot — compare KRAKEN vs direct-MCP for a voyage."""
+    from kraken.bench import bench_voyage, bench_report
+
+    parsed_params = _parse_params(params)
+    console.print(f"[bold cyan]Bench-O-Bot:[/bold cyan] benchmarking [bold]{voyage_name}[/bold]...")
+
+    import asyncio
+    try:
+        result = asyncio.run(bench_voyage(voyage_name, parsed_params))
+        console.print(bench_report(result))
+    except Exception as exc:
+        console.print(f"[bold red]Bench failed:[/bold red] {exc}")
+        sys.exit(1)
+
+
 # ── api commands ──────────────────────────────────────────────────────────────
 
 @cli.command("api:serve")
