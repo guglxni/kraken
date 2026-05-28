@@ -1,0 +1,34 @@
+name: purser
+version: 0.1.0
+description: >
+  Invoke for voyage V4 (Angry Whales) and V6 (Executive Escalation).
+  Purser is the Customer Escalation specialist: it joins Intercom conversations
+  with Stripe MRR, Sentry error counts, and Gmail threads to produce an
+  MRR-weighted escalation brief and draft a CEO reply for Anchor approval.
+model:
+  provider: anthropic
+  name: claude-opus-4-6
+  fallback:
+    - provider: openai
+      name: gpt-4o
+runtime:
+  framework: crewai
+  flow_role: specialist
+context:
+  soul: SOUL.md
+  rules: RULES.md
+  skills:
+    - skills/angry_whales.md
+    - skills/exec_escalation.md
+    - skills/email_drafting.md
+    - skills/mrr_weighting.md
+tools:
+  - tools/coral.yaml
+hooks:
+  pre_invoke:
+    - reef_memory.inject_exemplars
+  post_invoke:
+    - langfuse.log_span
+    - blackboard.persist
+max_turns: 10
+permission_mode: default

@@ -1,0 +1,220 @@
+name: osv
+version: 0.1.0
+dsl_version: 3
+description: >
+  OSV.dev — the open-source vulnerability database aggregating CVEs, GHSAs,
+  PyPI advisories, Go vulnerability reports, and more. No authentication
+  required. Used by KRAKEN's Fresh-CVE voyage (V5) and the hero exec-escalation
+  voyage (V6) to JOIN vulnerability data against deployed dependency graphs.
+backend: http
+base_url: https://api.osv.dev/v1
+
+# No auth — OSV.dev is a fully public API.
+
+tables:
+  # ── vulnerabilities ────────────────────────────────────────────────────────
+  - name: vulnerabilities
+    description: >
+      One row per OSV vulnerability record. Covers GHSA, CVE, PYSEC, RUSTSEC,
+      GO, MAVEN, and all other ecosystems indexed by OSV.dev.
+      Query by package ecosystem + name to retrieve all advisories that affect
+      that package; filter by published / modified dates to find recent findings.
+    request:
+      method: POST
+      path: /query
+      body:
+        package:
+          name: "{{filter.package_name}}"
+          ecosystem: "{{filter.ecosystem}}"
+    response:
+      rows_path:
+        - vulns
+    pagination:
+      mode: cursor
+      cursor_response_path:
+        - next_page_token
+      cursor_request_param: page_token
+      page_size:
+        default: 50
+        max: 100
+        query_param: page_size
+    columns:
+      - name: id
+        type: Utf8
+        description: "OSV ID, e.g. GHSA-abcd-1234-efgh or CVE-2024-12345"
+      - name: summary
+        type: Utf8
+        description: "One-line human-readable summary of the vulnerability"
+      - name: details
+        type: Utf8
+        description: "Full Markdown description of the vulnerability"
+      - name: published
+        type: Timestamp
+        description: "RFC3339 timestamp when this advisory was first published"
+      - name: modified
+        type: Timestamp
+        description: "RFC3339 timestamp of the last modification to this record"
+      - name: schema_version
+        type: Utf8
+        description: "OSV schema version used for this record, e.g. 1.5.0"
+      - name: severity__0__type
+        type: Utf8
+        description: "Severity scoring system type, e.g. CVSS_V3 or CVSS_V4"
+      - name: severity__0__score
+        type: Utf8
+        description: "Raw severity score string, e.g. CVSS:3.1/AV:N/AC:L/…"
+      - name: database_specific__severity
+        type: Utf8
+        description: "Human-readable severity label: CRITICAL, HIGH, MEDIUM, LOW"
+      - name: database_specific__cwe_ids__0
+        type: Utf8
+        description: "Primary CWE identifier, e.g. CWE-79"
+    filters:
+      - name: package_name
+        mode: exact
+        operators: ["="]
+        description: "Filter by package name (required when querying by package)"
+      - name: ecosystem
+        mode: exact
+        operators: ["="]
+        description: >
+          Package ecosystem: npm, PyPI, Go, Maven, RubyGems, crates.io,
+          NuGet, Hex, Pub, Linux, OSS-Fuzz, Android, GitHub Actions
+      - name: published
+        mode: exact
+        operators: [">=", "<=", ">", "<"]
+        description: "Filter by advisory publication date"
+      - name: modified
+        mode: exact
+        operators: [">=", "<=", ">", "<"]
+        description: "Filter by advisory last-modification date"
+
+  # ── affected ───────────────────────────────────────────────────────────────
+  - name: affected
+    description: >
+      One row per (vulnerability, affected-package) pair. A single vulnerability
+      can affect multiple packages across multiple ecosystems. JOIN to
+      vulnerabilities on vulnerability_id = id to enrich with severity details.
+    request:
+      method: GET
+      path: /vulns/{{filter.vulnerability_id}}
+    response:
+      rows_path:
+        - affected
+    columns:
+      - name: vulnerability_id
+        type: Utf8
+        description: "Parent OSV ID (foreign key to vulnerabilities.id)"
+      - name: package__name
+        type: Utf8
+        description: "Name of the affected package"
+      - name: package__ecosystem
+        type: Utf8
+        description: "Ecosystem of the affected package, e.g. npm or PyPI"
+      - name: package__purl
+        type: Utf8
+        description: "Package URL (PURL) for the affected package, if present"
+      - name: ecosystem_specific__severity
+        type: Utf8
+        description: "Ecosystem-specific severity classification"
+    filters:
+      - name: vulnerability_id
+        mode: exact
+        operators: ["="]
+        description: "OSV vulnerability ID to fetch affected packages for"
+
+  # ── ranges ─────────────────────────────────────────────────────────────────
+  - name: ranges
+    description: >
+      Version ranges specifying which versions of a package are affected and
+      which version introduced or fixed the vulnerability. One row per
+      (vulnerability, affected-package, range-event). JOIN to affected on
+      package name and ecosystem to filter to relevant packages.
+    request:
+      method: GET
+      path: /vulns/{{filter.vulnerability_id}}
+    response:
+      rows_path:
+        - affected[*].ranges[*]
+    columns:
+      - name: vulnerability_id
+        type: Utf8
+        description: "Parent OSV ID"
+      - name: package_name
+        type: Utf8
+        description: "Package this range applies to"
+      - name: package_ecosystem
+        type: Utf8
+        description: "Ecosystem this range applies to"
+      - name: type
+        type: Utf8
+        description: "Range type: SEMVER, ECOSYSTEM, or GIT"
+      - name: introduced
+        type: Utf8
+        description: "Version that introduced the vulnerability (inclusive)"
+      - name: fixed
+        type: Utf8
+        description: "Version that fixes the vulnerability (exclusive), if known"
+      - name: last_affected
+        type: Utf8
+        description: "Last affected version, if a fixed version is not known"
+      - name: limit
+        type: Utf8
+        description: "Version limit for GIT-type ranges"
+    filters:
+      - name: vulnerability_id
+        mode: exact
+        operators: ["="]
+        description: "OSV vulnerability ID to fetch version ranges for"
+
+  # ── references ─────────────────────────────────────────────────────────────
+  - name: references
+    description: >
+      External references associated with a vulnerability: advisories, patch
+      commits, bug reports, CVE pages, blog posts. One row per reference URL.
+    request:
+      method: GET
+      path: /vulns/{{filter.vulnerability_id}}
+    response:
+      rows_path:
+        - references
+    columns:
+      - name: vulnerability_id
+        type: Utf8
+        description: "Parent OSV ID"
+      - name: type
+        type: Utf8
+        description: "Reference type: ADVISORY, ARTICLE, DETECTION, DISCUSSION, FIX, GIT, INTRODUCED, PACKAGE, REPORT, WEB"
+      - name: url
+        type: Utf8
+        description: "Full URL of the external reference"
+    filters:
+      - name: vulnerability_id
+        mode: exact
+        operators: ["="]
+        description: "OSV vulnerability ID to fetch references for"
+
+  # ── aliases ────────────────────────────────────────────────────────────────
+  - name: aliases
+    description: >
+      Cross-database aliases for a vulnerability. A GHSA may have a CVE alias
+      and vice versa. One row per alias. Use this table to translate between
+      identifier systems when JOINing with GitHub Security Advisories or NVD.
+    request:
+      method: GET
+      path: /vulns/{{filter.vulnerability_id}}
+    response:
+      rows_path:
+        - aliases
+    columns:
+      - name: vulnerability_id
+        type: Utf8
+        description: "Parent OSV ID"
+      - name: alias
+        type: Utf8
+        description: "Cross-database alias, e.g. CVE-2024-12345 or GHSA-xxxx-yyyy-zzzz"
+    filters:
+      - name: vulnerability_id
+        mode: exact
+        operators: ["="]
+        description: "OSV vulnerability ID to fetch aliases for"

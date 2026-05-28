@@ -1,0 +1,34 @@
+name: cooper
+version: 0.1.0
+description: >
+  Invoke for voyage V1 (Hot Deploy). Cooper is the Coding Debugger: it traces
+  from a Sentry error through PR history and deploy timing to the exact symbol
+  that regressed, then drafts a PR with the fix for human review.
+model:
+  provider: anthropic
+  name: claude-sonnet-4-6
+  fallback:
+    - provider: openai
+      name: gpt-4o
+runtime:
+  framework: crewai
+  flow_role: specialist
+context:
+  soul: SOUL.md
+  rules: RULES.md
+  skills:
+    - skills/hot_deploy.md
+    - skills/tree_sitter_parse.md
+    - skills/pr_drafting.md
+    - skills/repo_map.md
+tools:
+  - tools/coral.yaml
+hooks:
+  pre_invoke:
+    - reef_memory.inject_exemplars
+  post_invoke:
+    - langfuse.log_span
+    - blackboard.persist
+max_turns: 10
+permission_mode: default
+isolation: worktree

@@ -1,0 +1,172 @@
+name: stigmergic_self_ref
+version: 1.0.0
+description: >
+  KRAKEN analyzing its own past voyage history. Reads kraken.findings and
+  kraken.plans to surface patterns: which voyages run most, which agents
+  produce the highest-confidence findings, where plans fail, and whether
+  Reef Memory exemplars are improving synthesis quality. Used for
+  self-improvement and capability reporting.
+required_sources:
+  - kraken_findings
+  - kraken_plans
+  - github
+target_agent: quartermaster
+params:
+  lookback_days:
+    type: integer
+    description: Days to analyze for self-referential patterns
+    default: 30
+  min_voyage_count:
+    type: integer
+    description: Minimum voyage executions to include a pattern
+    default: 3
+output_schema:
+  - name: metric_name
+    type: string
+  - name: metric_value
+    type: float
+  - name: trend_direction
+    type: string
+  - name: details
+    type: string
+  - name: improvement_suggestion
+    type: string
+sql: |
+  WITH voyage_stats AS (
+    SELECT
+      p.kind                                        AS voyage_kind,
+      COUNT(*)                                      AS total_executions,
+      COUNT(*) FILTER (WHERE p.status = 'done')    AS successful,
+      COUNT(*) FILTER (WHERE p.status = 'failed')  AS failed,
+      ROUND(
+        100.0 * COUNT(*) FILTER (WHERE p.status = 'done')
+          / NULLIF(COUNT(*), 0),
+        1
+      )                                             AS success_rate_pct,
+      AVG(
+        EXTRACT(EPOCH FROM (
+          COALESCE(p.created_at, CURRENT_TIMESTAMP) - p.created_at
+        ))
+      )                                             AS avg_duration_s
+    FROM kraken_plans.plans p
+    WHERE p.created_at >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
+    GROUP BY p.kind
+    HAVING COUNT(*) >= {{ params.min_voyage_count }}
+  ),
+
+  agent_performance AS (
+    SELECT
+      f.agent,
+      COUNT(*)                                      AS finding_count,
+      COUNT(DISTINCT f.voyage_id)                   AS unique_voyages,
+      COUNT(*) FILTER (WHERE f.kind = 'error')     AS error_findings,
+      ROUND(
+        100.0 * COUNT(*) FILTER (WHERE f.kind != 'error')
+          / NULLIF(COUNT(*), 0),
+        1
+      )                                             AS success_finding_pct
+    FROM kraken_findings.findings f
+    WHERE f.created_at >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
+    GROUP BY f.agent
+  ),
+
+  plan_failure_analysis AS (
+    SELECT
+      p.target_agent,
+      p.kind                                        AS voyage_kind,
+      COUNT(*) FILTER (WHERE p.status = 'failed')  AS failure_count,
+      COUNT(*)                                      AS total_plans
+    FROM kraken_plans.plans p
+    WHERE p.created_at >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
+      AND p.status IN ('done', 'failed')
+    GROUP BY p.target_agent, p.kind
+  ),
+
+  repo_activity AS (
+    SELECT
+      COUNT(DISTINCT c.sha)                         AS commits_in_window,
+      COUNT(DISTINCT pr.number)                     AS prs_merged,
+      MAX(c.author__date)                           AS latest_commit_at
+    FROM github.commits c
+    LEFT JOIN github.pull_requests pr
+      ON pr.merged_at >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
+    WHERE c.author__date >= CURRENT_TIMESTAMP - INTERVAL '{{ params.lookback_days }} days'
+  ),
+
+  self_metrics AS (
+    SELECT
+      'voyage_success_rate'                         AS metric_name,
+      ROUND(AVG(vs.success_rate_pct), 1)            AS metric_value,
+      CASE
+        WHEN AVG(vs.success_rate_pct) >= 90 THEN 'stable'
+        WHEN AVG(vs.success_rate_pct) >= 75 THEN 'improving'
+        ELSE 'degrading'
+      END                                           AS trend_direction,
+      CONCAT(
+        'Best: ', MAX(vs.voyage_kind),
+        ', worst: ', MIN(vs.voyage_kind)
+      )                                             AS details,
+      CASE
+        WHEN AVG(vs.success_rate_pct) < 80
+          THEN 'Review Coral source connection reliability'
+        ELSE 'Maintain current query patterns'
+      END                                           AS improvement_suggestion
+    FROM voyage_stats vs
+
+    UNION ALL
+
+    SELECT
+      'most_active_voyage'                          AS metric_name,
+      MAX(vs.total_executions)                      AS metric_value,
+      'informational'                               AS trend_direction,
+      CONCAT('Top voyage: ', (
+        SELECT voyage_kind FROM voyage_stats
+        ORDER BY total_executions DESC LIMIT 1
+      ))                                            AS details,
+      'Consider caching frequent voyage results in Reef Memory'
+                                                    AS improvement_suggestion
+    FROM voyage_stats vs
+
+    UNION ALL
+
+    SELECT
+      'agent_finding_rate'                          AS metric_name,
+      ROUND(AVG(ap.finding_count), 1)              AS metric_value,
+      CASE
+        WHEN AVG(ap.success_finding_pct) >= 85 THEN 'stable'
+        ELSE 'review_needed'
+      END                                           AS trend_direction,
+      CONCAT(
+        'Total findings: ',
+        CAST(SUM(ap.finding_count) AS VARCHAR)
+      )                                             AS details,
+      CASE
+        WHEN AVG(ap.success_finding_pct) < 80
+          THEN 'Review SOUL.md for lowest-performing agent'
+        ELSE 'Agent prompts performing well'
+      END                                           AS improvement_suggestion
+    FROM agent_performance ap
+
+    UNION ALL
+
+    SELECT
+      'repo_commit_velocity'                        AS metric_name,
+      CAST(ra.commits_in_window AS DOUBLE)          AS metric_value,
+      'informational'                               AS trend_direction,
+      CONCAT(
+        CAST(ra.commits_in_window AS VARCHAR), ' commits, ',
+        CAST(ra.prs_merged AS VARCHAR), ' PRs merged'
+      )                                             AS details,
+      'Monitor for deploy frequency correlation with error spikes'
+                                                    AS improvement_suggestion
+    FROM repo_activity ra
+  )
+
+  SELECT
+    metric_name,
+    metric_value,
+    trend_direction,
+    details,
+    improvement_suggestion
+  FROM self_metrics
+  ORDER BY metric_name

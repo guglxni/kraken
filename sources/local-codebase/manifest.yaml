@@ -1,0 +1,176 @@
+name: local-codebase
+version: 0.1.0
+dsl_version: 3
+description: >
+  Local filesystem as queryable Coral SQL tables. Exposes every file in a
+  codebase as a row with path, content, extension, size, and modification time.
+  Also exposes git commit history (diffs) as a time-series table. No external
+  API calls — all data is read directly from the local disk. Used by KRAKEN's
+  Cooper agent (coding debugger) and the Fresh-CVE voyage to correlate deployed
+  package manifests with OSV vulnerability data.
+backend: file
+
+inputs:
+  CODEBASE_PATH:
+    kind: variable
+    default: "."
+    hint: >
+      Absolute path to the root of the local codebase. Defaults to the current
+      working directory. Example: /home/user/my-project
+
+tables:
+  # ── files ──────────────────────────────────────────────────────────────────
+  - name: files
+    description: >
+      One row per file in the codebase. Content is the full UTF-8 text of the
+      file (binary files are excluded). Extension is the lowercased file
+      extension without the leading dot (e.g. "py", "ts", "yaml"). Filter by
+      extension to scope queries to a specific language; filter by path prefix
+      to scope to a directory. The content column enables full-text search over
+      the codebase from Coral SQL.
+    source:
+      location: "file://{{input.CODEBASE_PATH}}"
+      glob: "**/*"
+    format: jsonl
+    columns:
+      - name: path
+        type: Utf8
+        description: "Relative file path from the codebase root, e.g. src/main.py"
+      - name: extension
+        type: Utf8
+        description: "Lowercased file extension without dot, e.g. py, ts, yaml, md"
+      - name: size_bytes
+        type: Int64
+        description: "File size in bytes"
+      - name: content
+        type: Utf8
+        description: "Full UTF-8 text content of the file (binary files excluded)"
+      - name: mtime
+        type: Timestamp
+        description: "Last modification timestamp of the file (from filesystem metadata)"
+    filters:
+      - name: path
+        mode: prefix
+        operators: ["LIKE", "="]
+        description: "Filter by file path prefix or exact path"
+      - name: extension
+        mode: exact
+        operators: ["=", "!=", "IN"]
+        description: "Filter by file extension, e.g. extension = 'py'"
+      - name: mtime
+        mode: exact
+        operators: [">=", "<=", ">", "<"]
+        description: "Filter by last-modification time"
+      - name: size_bytes
+        mode: exact
+        operators: [">=", "<=", ">", "<"]
+        description: "Filter by file size"
+
+  # ── diffs ──────────────────────────────────────────────────────────────────
+  - name: diffs
+    description: >
+      Git commit history for the codebase, one row per (commit, file) pair.
+      Each row records the author, commit message, and line-level additions /
+      deletions for a single file in that commit. Requires the codebase to be
+      a git repository. Used by Cooper and Helm agents to identify which commits
+      introduced a regression or a dependency change. JOIN to osv.affected on
+      package name to correlate dependency bumps with known vulnerabilities.
+    source:
+      location: "file://{{input.CODEBASE_PATH}}/.git"
+      glob: "git-log.jsonl"
+    format: jsonl
+    columns:
+      - name: commit_sha
+        type: Utf8
+        description: "Full 40-character git commit SHA"
+      - name: author_name
+        type: Utf8
+        description: "Git author display name"
+      - name: author_email
+        type: Utf8
+        description: "Git author email address"
+      - name: message
+        type: Utf8
+        description: "Full commit message (subject + body)"
+      - name: file_path
+        type: Utf8
+        description: "Relative path of the changed file within the repository"
+      - name: additions
+        type: Int64
+        description: "Number of lines added in this file in this commit"
+      - name: deletions
+        type: Int64
+        description: "Number of lines deleted in this file in this commit"
+      - name: created_at
+        type: Timestamp
+        description: "Commit author timestamp (ISO 8601)"
+    filters:
+      - name: created_at
+        mode: exact
+        operators: [">=", "<=", ">", "<"]
+        description: "Filter commits by author timestamp — always include a date filter for performance"
+      - name: author_email
+        mode: exact
+        operators: ["=", "LIKE"]
+        description: "Filter commits by author email"
+      - name: file_path
+        mode: prefix
+        operators: ["LIKE", "="]
+        description: "Filter by changed file path prefix"
+      - name: commit_sha
+        mode: exact
+        operators: ["="]
+        description: "Look up a specific commit by SHA"
+
+  # ── symbols ────────────────────────────────────────────────────────────────
+  - name: symbols
+    description: >
+      Tree-sitter parsed symbol table for the codebase. One row per symbol
+      (function, class, method, constant). Enables semantic code search via
+      Coral SQL: find all functions named "handle_payment" across the codebase,
+      or all classes that import a specific module. Binary is excluded.
+      Requires the tree-sitter pre-processor to have been run (kraken source
+      preprocess local-codebase) before querying this table.
+    source:
+      location: "file://{{input.CODEBASE_PATH}}/.kraken/symbols.jsonl"
+      glob: "symbols.jsonl"
+    format: jsonl
+    columns:
+      - name: file_path
+        type: Utf8
+        description: "Relative path of the source file containing this symbol"
+      - name: symbol_name
+        type: Utf8
+        description: "Identifier name, e.g. handle_payment or PaymentService"
+      - name: symbol_kind
+        type: Utf8
+        description: "Symbol type: function, class, method, variable, constant, import"
+      - name: language
+        type: Utf8
+        description: "Programming language: python, typescript, javascript, rust, go"
+      - name: start_line
+        type: Int64
+        description: "1-based line number where the symbol definition starts"
+      - name: end_line
+        type: Int64
+        description: "1-based line number where the symbol definition ends"
+      - name: signature
+        type: Utf8
+        description: "Full signature text, e.g. def handle_payment(amount: float) -> bool:"
+    filters:
+      - name: symbol_name
+        mode: exact
+        operators: ["=", "LIKE"]
+        description: "Filter by symbol name or pattern"
+      - name: symbol_kind
+        mode: exact
+        operators: ["=", "IN"]
+        description: "Filter by symbol type"
+      - name: language
+        mode: exact
+        operators: ["=", "IN"]
+        description: "Filter by programming language"
+      - name: file_path
+        mode: prefix
+        operators: ["LIKE", "="]
+        description: "Filter by source file path prefix"

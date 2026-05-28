@@ -1,0 +1,35 @@
+name: helm
+version: 0.1.0
+description: >
+  Invoke for voyage V2 (Incident Auto-Summary) and V7 (Risk Heatmap).
+  Helm is the SRE Investigator: it correlates PagerDuty incidents with
+  recent deploys, metric anomalies, and third-party status to produce
+  a root-cause hypothesis with a confidence level and supporting evidence.
+model:
+  provider: anthropic
+  name: claude-opus-4-6
+  effort: high
+  fallback:
+    - provider: openai
+      name: gpt-4o
+runtime:
+  framework: crewai
+  flow_role: specialist
+context:
+  soul: SOUL.md
+  rules: RULES.md
+  skills:
+    - skills/incident_summary.md
+    - skills/risk_heatmap.md
+    - skills/deploy_correlation.md
+    - skills/metric_anomaly.md
+tools:
+  - tools/coral.yaml
+hooks:
+  pre_invoke:
+    - reef_memory.inject_exemplars
+  post_invoke:
+    - langfuse.log_span
+    - blackboard.persist
+max_turns: 10
+permission_mode: default

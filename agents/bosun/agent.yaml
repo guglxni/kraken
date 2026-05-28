@@ -1,0 +1,32 @@
+name: bosun
+version: 0.1.0
+description: >
+  Invoke for voyage V3 (Stuck Sprint). Bosun is the Sprint Health analyst: it
+  joins Linear/Jira issues with their PRs and Slack threads to surface blockers
+  and suggest concrete unblocking actions for the engineering manager.
+model:
+  provider: anthropic
+  name: claude-haiku-4-5
+  fallback:
+    - provider: openai
+      name: gpt-4o-mini
+runtime:
+  framework: crewai
+  flow_role: specialist
+context:
+  soul: SOUL.md
+  rules: RULES.md
+  skills:
+    - skills/stuck_sprint.md
+    - skills/dependency_graph.md
+    - skills/unblocking_suggestions.md
+tools:
+  - tools/coral.yaml
+hooks:
+  pre_invoke:
+    - reef_memory.inject_exemplars
+  post_invoke:
+    - langfuse.log_span
+    - blackboard.persist
+max_turns: 5
+permission_mode: default

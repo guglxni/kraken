@@ -1,0 +1,162 @@
+name: stuck_sprint
+version: 1.0.0
+description: >
+  Identify why a sprint is stuck: which issues are blocked, which engineers
+  have review bottlenecks, which PRs have been open longest, and whether
+  an upstream dependency or third-party outage is causing the slowdown.
+required_sources:
+  - linear
+  - github
+  - sentry
+target_agent: bosun
+params:
+  team_name:
+    type: string
+    description: Linear team name or identifier
+  sprint_id:
+    type: string
+    description: Linear cycle/sprint ID (or 'current' for active sprint)
+    default: current
+  stale_pr_days:
+    type: integer
+    description: Days without activity before a PR is considered stale
+    default: 3
+output_schema:
+  - name: issue_id
+    type: string
+  - name: issue_title
+    type: string
+  - name: issue_state
+    type: string
+  - name: assignee_login
+    type: string
+  - name: days_in_state
+    type: float
+  - name: blocked_by
+    type: string
+  - name: linked_pr_number
+    type: integer
+  - name: pr_days_open
+    type: float
+  - name: pr_review_count
+    type: integer
+  - name: blocker_type
+    type: string
+sql: |
+  WITH sprint_issues AS (
+    SELECT
+      i.id                                          AS issue_id,
+      i.title                                       AS issue_title,
+      i.state__name                                 AS issue_state,
+      i.assignee__name                              AS assignee_name,
+      i.assignee__email                             AS assignee_email,
+      i.priority,
+      i.estimate,
+      i.label_names,
+      i.created_at,
+      i.updated_at,
+      EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - i.updated_at)) / 86400.0
+                                                    AS days_since_update,
+      EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - i.created_at)) / 86400.0
+                                                    AS days_in_sprint
+    FROM linear.issues i
+    WHERE i.team__name = '{{ params.team_name }}'
+      AND (
+        '{{ params.sprint_id }}' = 'current'
+        OR i.cycle__id = '{{ params.sprint_id }}'
+      )
+      AND i.state__name NOT IN ('done', 'cancelled', 'duplicate')
+    ORDER BY i.priority DESC, i.updated_at ASC
+  ),
+
+  issue_relations AS (
+    SELECT
+      r.issue_id,
+      ARRAY_AGG(r.related_issue_id)                 AS blocked_by_ids
+    FROM linear.issue_relations r
+    JOIN sprint_issues si ON si.issue_id = r.issue_id
+    WHERE r.type = 'blocks'
+    GROUP BY r.issue_id
+  ),
+
+  linked_prs AS (
+    SELECT
+      pr.number                                     AS pr_number,
+      pr.title                                      AS pr_title,
+      pr.user__login                                AS pr_author,
+      pr.state                                      AS pr_state,
+      pr.created_at                                 AS pr_opened_at,
+      EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - pr.created_at)) / 86400.0
+                                                    AS pr_days_open,
+      pr.draft,
+      pr.review_comments                            AS pr_review_comments
+    FROM github.pull_requests pr
+    JOIN sprint_issues si
+      ON pr.body LIKE '%' || si.issue_id || '%'
+      OR pr.title LIKE '%' || si.issue_id || '%'
+    WHERE pr.state = 'open'
+      AND pr.created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'
+  ),
+
+  pr_review_counts AS (
+    SELECT
+      r.pull_number,
+      COUNT(DISTINCT r.user__login)                 AS reviewer_count,
+      COUNT(*) FILTER (WHERE r.state = 'APPROVED')  AS approval_count,
+      COUNT(*) FILTER (WHERE r.state = 'CHANGES_REQUESTED')
+                                                    AS changes_requested_count
+    FROM github.pull_request_reviews r
+    JOIN linked_prs lp ON lp.pr_number = r.pull_number
+    GROUP BY r.pull_number
+  ),
+
+  stale_analysis AS (
+    SELECT
+      si.issue_id,
+      si.issue_title,
+      si.issue_state,
+      si.assignee_email                             AS assignee_login,
+      si.days_since_update                          AS days_in_state,
+      COALESCE(
+        ARRAY_TO_STRING(ir.blocked_by_ids, ', '),
+        ''
+      )                                             AS blocked_by,
+      lp.pr_number                                  AS linked_pr_number,
+      lp.pr_days_open,
+      prc.reviewer_count                            AS pr_review_count,
+      CASE
+        WHEN ir.blocked_by_ids IS NOT NULL
+          THEN 'upstream_dependency'
+        WHEN lp.pr_days_open > {{ params.stale_pr_days }}
+          AND prc.approval_count = 0
+          THEN 'review_bottleneck'
+        WHEN si.days_since_update > {{ params.stale_pr_days * 2 }}
+          THEN 'stale_no_activity'
+        WHEN lp.pr_days_open > {{ params.stale_pr_days }}
+          AND prc.changes_requested_count > 0
+          THEN 'changes_not_addressed'
+        ELSE 'active'
+      END                                           AS blocker_type
+    FROM sprint_issues si
+    LEFT JOIN issue_relations ir USING (issue_id)
+    LEFT JOIN linked_prs lp
+      ON lp.pr_author = si.assignee_email
+      OR si.issue_id = SUBSTRING(lp.pr_title FROM '[A-Z]+-[0-9]+')
+    LEFT JOIN pr_review_counts prc ON prc.pull_number = lp.pr_number
+  )
+
+  SELECT
+    issue_id,
+    issue_title,
+    issue_state,
+    assignee_login,
+    days_in_state,
+    blocked_by,
+    linked_pr_number,
+    pr_days_open,
+    pr_review_count,
+    blocker_type
+  FROM stale_analysis
+  WHERE blocker_type != 'active'
+  ORDER BY days_in_state DESC
+  LIMIT 20

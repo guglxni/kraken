@@ -1,0 +1,60 @@
+name: exec_escalation
+version: 1.1.0
+description: >
+  HERO VOYAGE — given a high-MRR customer escalation (angry Gmail, exec ping),
+  build the full context by JOINing gmail.messages x intercom.contacts x
+  stripe.subscriptions x sentry.issues x datadog.metrics x github.deployments x
+  pagerduty.incidents x osv.vulnerabilities in one SQL plan. Returns a structured
+  EscalationBrief for the Purser agent to draft the CEO reply.
+required_sources:
+  - gmail
+  - intercom
+  - stripe
+  - sentry
+  - datadog
+  - github
+  - pagerduty
+  - osv
+target_agent: purser
+params:
+  - name: hours_back
+    type: integer
+    default: 6
+    description: "Hours back to scan Gmail inbox for escalation emails"
+  - name: mrr_threshold
+    type: integer
+    default: 10000
+    description: "Minimum MRR (USD/mo) to include a customer in the escalation brief"
+output_schema:
+  - name: subject
+    type: string
+  - name: from
+    type: string
+  - name: snippet
+    type: string
+  - name: customer
+    type: string
+  - name: mrr
+    type: float
+  - name: active_errors
+    type: integer
+  - name: current_p99
+    type: float
+  - name: last_deploy
+    type: string
+  - name: deployed_at
+    type: timestamp
+  - name: open_incidents
+    type: integer
+  - name: unpatched_cves
+    type: integer
+sql: exec_escalation.sql.j2
+routing:
+  kind: exec_escalation
+  target_agent: purser
+  priority: critical
+tests:
+  - name: compiles_with_defaults
+    fixture: tests/fixtures/exec_escalation_input.json
+    expect_rows: ">= 1"
+    expect_schema_matches: true

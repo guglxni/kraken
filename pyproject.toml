@@ -46,6 +46,8 @@ dependencies = [
     "litellm>=1.52.0",
     # Structlog
     "structlog>=24.4.0",
+    # YAML (voyage compiler)
+    "pyyaml>=6.0.2",
 ]
 
 [project.scripts]
