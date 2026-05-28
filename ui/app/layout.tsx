@@ -38,10 +38,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
             KRAKEN
           </span>
           <nav className="flex items-center gap-6 text-sm text-[var(--color-text-muted)]">
-            <a
-              href="/"
-              className="hover:text-[var(--color-text-primary)] transition-colors"
-            >
+            <a href="/" className="hover:text-[var(--color-text-primary)] transition-colors">
               Captain&apos;s Bridge
             </a>
             <a

@@ -72,6 +72,49 @@ export function SpyglassPane({ trace }: SpyglassPaneProps) {
           ))}
         </ul>
       </div>
+
+      {/* ── Column lineage ───────────────────────────────────── */}
+      {trace.lineage && (
+        <div>
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-[var(--color-text-muted)] mb-2">
+            Column Lineage
+            {trace.lineage.engine && (
+              <span className="ml-2 font-normal normal-case tracking-normal text-[10px] text-[var(--color-text-muted)]">
+                via {trace.lineage.engine}
+              </span>
+            )}
+          </h3>
+
+          {trace.lineage.tables.length > 0 && (
+            <ul className="flex flex-wrap gap-2 mb-3">
+              {trace.lineage.tables.map((table) => (
+                <li
+                  key={table}
+                  className="font-mono text-xs px-3 py-1 rounded-full border border-[var(--color-border)] text-[var(--color-text-primary)] bg-[var(--color-surface)]"
+                >
+                  {table}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {trace.lineage.columns.length > 0 && (
+            <ul className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] divide-y divide-[var(--color-border)]">
+              {trace.lineage.columns.map((col) => (
+                <li
+                  key={col.column}
+                  className="flex items-baseline justify-between gap-4 px-4 py-2 text-xs"
+                >
+                  <span className="font-mono text-[var(--color-text-primary)]">{col.column}</span>
+                  <span className="font-mono text-[var(--color-text-muted)] text-right">
+                    {col.sources.join(", ") || "—"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </section>
   );
 }

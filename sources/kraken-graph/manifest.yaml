@@ -1,0 +1,116 @@
+name: kraken-graph
+version: 0.1.0
+dsl_version: 3
+description: >
+  KRAKEN Graph — a KuzuDB-backed property graph of all voyage executions,
+  blackboard findings, plans, and their causal relationships. Enables
+  stigmergic self-reference: agents query the graph of prior KRAKEN outputs
+  to detect recurring patterns, identify high-frequency incidents, and
+  recommend systemic fixes. Powers V8 (Stigmergic Self-Reference) and the
+  Reef Map causal graph visualization.
+backend: local
+driver: kuzu
+database_path: ~/.kraken/graph.kuzu
+
+tables:
+  # ── voyages ─────────────────────────────────────────────────────────────────
+  - name: voyages
+    description: >
+      One node per KRAKEN voyage execution. Records the voyage kind, input
+      params, outcome label, executing agent, and performance metrics. Central
+      entity in the property graph — all other tables join to voyages.
+    columns:
+      - name: voyage_id
+        type: Utf8
+        description: "UUID identifying this voyage execution"
+      - name: kind
+        type: Utf8
+        description: "Voyage type: hot_deploy, incident_summary, exec_escalation, etc."
+      - name: params
+        type: Utf8
+        description: "JSON-serialized input parameters"
+      - name: outcome
+        type: Utf8
+        description: "Outcome label: SAFE, ROLLBACK_RECOMMENDED, ESCALATED, MONITOR, etc."
+      - name: agent
+        type: Utf8
+        description: "Agent that executed the voyage"
+      - name: executed_at
+        type: Timestamp
+        description: "When the voyage was executed"
+      - name: row_count
+        type: Int64
+        description: "Number of rows returned by the voyage SQL"
+      - name: latency_ms
+        type: Float64
+        description: "End-to-end voyage execution latency in milliseconds"
+      - name: cache_hit
+        type: Boolean
+        description: "True if Coral served the result from cache"
+
+  # ── findings ─────────────────────────────────────────────────────────────────
+  - name: findings
+    description: >
+      One node per finding written to the blackboard. JOIN to voyages on
+      voyage_id to see which voyage produced each finding and what its payload
+      contained. Useful for 'which voyages produced error findings?' queries.
+    columns:
+      - name: finding_id
+        type: Utf8
+        description: "UUID identifying this finding"
+      - name: voyage_id
+        type: Utf8
+        description: "Foreign key to voyages.voyage_id"
+      - name: kind
+        type: Utf8
+        description: "Finding kind: matches voyage kind, or 'error' / 'clarification'"
+      - name: agent
+        type: Utf8
+        description: "Agent that wrote this finding"
+      - name: created_at
+        type: Timestamp
+        description: "When the finding was written to the blackboard"
+
+  # ── causal_edges ─────────────────────────────────────────────────────────────
+  - name: causal_edges
+    description: >
+      Directed edges connecting findings to downstream voyages they triggered.
+      A finding from an incident_summary voyage may trigger a hot_deploy or
+      exec_escalation voyage. Follow these edges to trace the full causal chain
+      of a multi-voyage workflow.
+    columns:
+      - name: from_finding_id
+        type: Utf8
+        description: "Upstream finding UUID (source of this causal edge)"
+      - name: to_voyage_id
+        type: Utf8
+        description: "Downstream voyage UUID triggered by the upstream finding"
+      - name: edge_type
+        type: Utf8
+        description: "Causal relationship: TRIGGERED_BY, ESCALATED_TO, RESOLVED_BY, CORRELATED_WITH"
+      - name: confidence
+        type: Float64
+        description: "Causal confidence score 0.0–1.0 (1.0 = explicit trigger, 0.5 = inferred)"
+      - name: created_at
+        type: Timestamp
+        description: "When this causal edge was recorded"
+
+  # ── source_usage ──────────────────────────────────────────────────────────────
+  - name: source_usage
+    description: >
+      Edges from voyage nodes to the Coral sources they queried. Answers
+      'which sources were queried for this incident?' and 'which voyages
+      depend on this source?' — the structural data behind the Reef Map.
+    columns:
+      - name: voyage_id
+        type: Utf8
+        description: "Voyage UUID that queried this source"
+      - name: source_name
+        type: Utf8
+        description: "Coral source name: github, sentry, datadog, linear, osv, etc."
+      - name: query_count
+        type: Int64
+        description: "Number of SQL queries issued against this source in the voyage"
+      - name: cache_hit
+        type: Boolean
+        description: "True if Coral served this source query from its local cache"

@@ -1,0 +1,27 @@
+{
+  "voyage": "stigmergic_self_ref",
+  "voyage_id": "demo-v8-self-001",
+  "params": {
+    "lookback_days": 7,
+    "similarity_threshold": 0.85
+  },
+  "rows": [
+    {
+      "current_voyage_id": "demo-v6-acme-001",
+      "current_voyage_kind": "exec_escalation",
+      "similar_prior_voyage_id": "demo-v6-acme-prior-001",
+      "similarity_score": 0.94,
+      "prior_executed_at": "2026-05-21T14:32:00Z",
+      "prior_outcome": "ROLLBACK_RECOMMENDED",
+      "prior_customer": "Acme Corporation",
+      "prior_action_taken": "Rollback deployed at 2026-05-21T15:01:00Z",
+      "recurrence_count": 3,
+      "pattern_label": "RECURRING_DEPLOY_REGRESSION",
+      "recommendation": "Open Linear epic for systematic deploy health monitoring"
+    }
+  ],
+  "row_count": 1,
+  "cache_hit": false,
+  "latency_ms": 298.7,
+  "sources_queried": ["kraken_findings", "kraken_plans", "github", "linear"]
+}

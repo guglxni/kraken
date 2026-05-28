@@ -173,6 +173,31 @@
 
 ---
 
+## Incorporation Status (updated 2026-05-29)
+
+Status of each library after the integration pass. "Wired" = imported and used on
+a real code path with a graceful fallback; "Dormant" = dependency only; "Deferred" =
+intentionally out of hackathon scope.
+
+| # | Library | Priority | Status | Where it lives |
+|---|---------|----------|--------|----------------|
+| 1 | mem0 | P1 | **Wired** | `kraken/reef_memory.py` — primary backend (local-first `Memory.from_config`, `infer=False`); falls back to LanceDB+fastembed, then no-op |
+| 2 | SQLGlot | P1 | **Wired** | `kraken/voyages/compiler.py` (validation) + `kraken/lineage.py` (`format_sql`, table fallback) + `kraken/cli.py` (pretty-print) |
+| 3 | react-force-graph | P1 | **Wired** | `ui/components/ReefMap.tsx` (`react-force-graph-2d`, dynamic import) |
+| 4 | SQLLineage | P1 | **Wired** | `kraken/lineage.py` → `GET /api/traces` column provenance + `kraken voyage:lineage` CLI; powers the Spyglass "Column Lineage" panel |
+| 5 | rich | P1 | **Wired** | `kraken/cli.py` (tables, syntax-highlighted SQL) |
+| 6 | fastembed | P1 | **Wired** | `kraken/reef_memory.py` (LanceDB embeddings + mem0 embedder) |
+| 9 | Opik | P2 | **Wired** | `kraken/bench.py` `_record_opik()` (local trace recording, best-effort) feeding `GET /api/bench` → Spyglass Bench-O-Bot panel |
+| 10 | react-querybuilder | P2 | **Wired** | `ui/app/voyage-studio/page.tsx` visual WHERE composer (`formatQuery` → SQL) |
+| 7 | Marquez (OpenLineage) | P2 | Deferred | infra/docker-compose addition — lineage already covered locally by SQLLineage |
+| 8 | Laminar | P2 | Deferred | secondary OTel sink; Langfuse covers tracing for the demo |
+| 11 | OpenMetadata | P3 | Deferred | heavy service; risks the <60s compose-up target |
+| 12 | Record Linkage Toolkit | P3 | Deferred | probabilistic entity resolution — no demo voyage needs it yet |
+| 13 | reagraph | P3 | N/A | alternative to react-force-graph; one was chosen, as the research advised |
+
+All eight P1/P2 code-level libraries are now incorporated on real paths with graceful
+degradation, so the app runs whether or not each optional dependency is installed.
+
 ## Sources
 
 - [mem0 — mem0ai/mem0](https://github.com/mem0ai/mem0)

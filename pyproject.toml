@@ -25,6 +25,8 @@ dependencies = [
     "opentelemetry-exporter-otlp>=1.27.0",
     "openinference-instrumentation-anthropic>=0.1.0",
     "openinference-semantic-conventions>=0.1.0",
+    # Bench-O-Bot LLM evaluation / experiment tracking
+    "opik>=1.0.0",
     # SQL
     "sqlglot>=25.0.0",
     "sqllineage>=1.5.0",

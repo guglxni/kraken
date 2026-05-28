@@ -8,7 +8,7 @@ required_sources:
   - github
   - sentry
   - datadog
-target_agent: helm
+target_agent: cooper
 params:
   deploy_sha:
     type: string
@@ -68,7 +68,7 @@ sql: |
       pr.deletions,
       pr.changed_files
     FROM github.pull_requests pr
-    JOIN target_deploy td
+    INNER JOIN target_deploy td
       ON pr.head__sha = td.sha
     LIMIT 1
   ),

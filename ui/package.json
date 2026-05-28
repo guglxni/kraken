@@ -18,7 +18,9 @@
     "next": "^15.3.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-force-graph-2d": "^1.26.3"
+    "react-force-graph-2d": "^1.26.3",
+    "react-querybuilder": "^8.0.0",
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

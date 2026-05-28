@@ -1,5 +1,6 @@
+import { BenchOBot } from "@/components/BenchOBot";
 import { SpyglassPane } from "@/components/SpyglassPane";
-import { fetchTrace, fetchTraces } from "@/lib/api";
+import { fetchBench, fetchTrace, fetchTraces } from "@/lib/api";
 import type { SpyglassTrace } from "@/lib/types";
 
 interface SpyglassPageProps {
@@ -19,7 +20,7 @@ interface SpyglassPageProps {
  */
 export default async function SpyglassPage({ searchParams }: SpyglassPageProps) {
   const params = await searchParams;
-  const traces = await fetchTraces(20);
+  const [traces, bench] = await Promise.all([fetchTraces(20), fetchBench("exec_escalation")]);
 
   let selectedTrace: SpyglassTrace | null = null;
 
@@ -35,9 +36,7 @@ export default async function SpyglassPage({ searchParams }: SpyglassPageProps) 
       {/* ── Trace list sidebar ─────────────────────────────── */}
       <aside className="w-72 shrink-0 border-r border-[var(--color-border)] overflow-y-auto">
         <div className="px-4 py-3 border-b border-[var(--color-border)]">
-          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
-            Recent Traces
-          </h2>
+          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Recent Traces</h2>
           <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
             {traces.length} trace{traces.length !== 1 ? "s" : ""} available
           </p>
@@ -49,7 +48,7 @@ export default async function SpyglassPage({ searchParams }: SpyglassPageProps) 
               No traces yet. Execute a voyage to generate SQL traces.
             </p>
           ) : (
-            traces.map((trace) => (
+            traces.map((trace: SpyglassTrace) => (
               <TraceListItem
                 key={trace.trace_id}
                 trace={trace}
@@ -62,9 +61,13 @@ export default async function SpyglassPage({ searchParams }: SpyglassPageProps) 
 
       {/* ── Main pane ──────────────────────────────────────── */}
       <main className="flex-1 overflow-y-auto p-8">
-        <h1 className="text-xl font-bold text-[var(--color-text-primary)] mb-6">
-          Spyglass
-        </h1>
+        <h1 className="text-xl font-bold text-[var(--color-text-primary)] mb-6">Spyglass</h1>
+
+        {bench && (
+          <div className="mb-8">
+            <BenchOBot bench={bench} />
+          </div>
+        )}
 
         {selectedTrace ? (
           <SpyglassPane trace={selectedTrace} />

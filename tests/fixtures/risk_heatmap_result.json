@@ -1,0 +1,50 @@
+{
+  "voyage": "risk_heatmap",
+  "voyage_id": "demo-v7-risk-001",
+  "params": {
+    "lookback_hours": 24,
+    "risk_score_threshold": 0.6
+  },
+  "rows": [
+    {
+      "domain": "customer-dashboard",
+      "error_rate_pct": 6.82,
+      "p99_latency_ms": 4823.5,
+      "open_incidents": 2,
+      "blocked_tickets": 2,
+      "unpatched_cves": 3,
+      "last_deploy_hours_ago": 2.3,
+      "at_risk_mrr": 312450.0,
+      "composite_risk_score": 0.91,
+      "risk_label": "CRITICAL"
+    },
+    {
+      "domain": "auth-service",
+      "error_rate_pct": 0.12,
+      "p99_latency_ms": 284.1,
+      "open_incidents": 0,
+      "blocked_tickets": 1,
+      "unpatched_cves": 1,
+      "last_deploy_hours_ago": 18.7,
+      "at_risk_mrr": 89200.0,
+      "composite_risk_score": 0.48,
+      "risk_label": "MEDIUM"
+    },
+    {
+      "domain": "billing-service",
+      "error_rate_pct": 0.03,
+      "p99_latency_ms": 112.8,
+      "open_incidents": 0,
+      "blocked_tickets": 0,
+      "unpatched_cves": 0,
+      "last_deploy_hours_ago": 72.1,
+      "at_risk_mrr": 0.0,
+      "composite_risk_score": 0.07,
+      "risk_label": "LOW"
+    }
+  ],
+  "row_count": 3,
+  "cache_hit": false,
+  "latency_ms": 521.6,
+  "sources_queried": ["sentry", "datadog", "pagerduty", "linear", "osv", "github"]
+}

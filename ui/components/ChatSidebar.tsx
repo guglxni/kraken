@@ -83,9 +83,7 @@ export function ChatSidebar() {
     <aside className="w-80 shrink-0 border-l border-[var(--color-border)] flex flex-col bg-[var(--color-surface-raise)]">
       {/* Header */}
       <div className="px-4 py-3 border-b border-[var(--color-border)]">
-        <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
-          Voyage Assistant
-        </h2>
+        <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Voyage Assistant</h2>
         <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
           Ask about incidents, deployments, or sprint health.
         </p>

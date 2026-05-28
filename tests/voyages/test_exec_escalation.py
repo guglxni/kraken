@@ -5,10 +5,9 @@ This is the primary demo voyage. These tests must pass on every commit.
 
 from __future__ import annotations
 
-import yaml
 from pathlib import Path
 
-import pytest
+import yaml
 
 from kraken.voyages.compiler import compile_voyage, validate_voyage
 

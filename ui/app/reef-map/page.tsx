@@ -1,15 +1,19 @@
 import { ReefMap } from "@/components/ReefMap";
 import { fetchReefGraph } from "@/lib/api";
 
-/**
- * Reef Map — live causal graph of Coral source relationships.
- *
- * The page shell is a Server Component (fetches graph data at render time).
- * The actual force-directed graph is rendered by the ReefMap Client Component,
- * which uses react-force-graph-2d and requires browser APIs.
- */
-export default async function ReefMapPage() {
-  const graph = await fetchReefGraph();
+export const dynamic = "force-dynamic";
+
+// Hero demo voyage ID — used when no voyage_id is specified
+const DEMO_VOYAGE_ID = "demo-v6-acme-001";
+
+interface ReefMapPageProps {
+  searchParams: Promise<{ voyage_id?: string }>;
+}
+
+export default async function ReefMapPage({ searchParams }: ReefMapPageProps) {
+  const { voyage_id } = await searchParams;
+  const vid = voyage_id ?? DEMO_VOYAGE_ID;
+  const graph = await fetchReefGraph(vid);
 
   const nodeCount = graph.nodes.length;
   const edgeCount = graph.links.length;
@@ -21,7 +25,8 @@ export default async function ReefMapPage() {
         <div>
           <h1 className="text-xl font-bold text-[var(--color-text-primary)]">Reef Map</h1>
           <p className="text-sm text-[var(--color-text-muted)] mt-0.5">
-            Causal graph of Coral source relationships from the last voyage.
+            Causal graph of Coral source relationships from voyage{" "}
+            <code className="font-mono text-xs bg-[var(--color-border)] px-1 rounded">{vid}</code>.
           </p>
         </div>
 
@@ -44,7 +49,10 @@ export default async function ReefMapPage() {
       {/* ── Legend ─────────────────────────────────────────── */}
       <div className="shrink-0 flex flex-wrap gap-3">
         {LEGEND_ITEMS.map((item) => (
-          <div key={item.kind} className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+          <div
+            key={item.kind}
+            className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]"
+          >
             <span
               className="inline-block w-2.5 h-2.5 rounded-full"
               style={{ backgroundColor: item.color }}

@@ -21,8 +21,12 @@ import structlog
 from rich.console import Console
 from rich.table import Table
 
-from kraken.models import VoyageKind
-from kraken.voyages.compiler import VoyageCompileError, compile_voyage, list_voyages, validate_voyage
+from kraken.voyages.compiler import (
+    VoyageCompileError,
+    compile_voyage,
+    list_voyages,
+    validate_voyage,
+)
 
 console = Console()
 logger = structlog.get_logger(__name__)
@@ -149,11 +153,46 @@ def voyage_compile(voyage_name: str, params: str | None) -> None:
         console.print(f"[bold red]Error:[/bold red] {exc}")
         sys.exit(1)
 
+    from rich.syntax import Syntax
+
+    from kraken.lineage import format_sql, lineage_summary
+
     console.print(f"-- Voyage: {compiled.name}")
     console.print(f"-- Sources: {', '.join(compiled.required_sources)}")
     console.print(f"-- Params: {json.dumps(compiled.params)}")
+    console.print(f"-- Lineage: {lineage_summary(compiled.sql)}")
     console.print()
-    console.print(compiled.sql)
+    # Pretty-print via sqlglot, syntax-highlight via rich.
+    console.print(Syntax(format_sql(compiled.sql), "sql", theme="ansi_dark", word_wrap=True))
+
+
+@cli.command("voyage:lineage")
+@click.argument("voyage_name")
+@click.option("--params", default=None, help="JSON params for the voyage")
+def voyage_lineage(voyage_name: str, params: str | None) -> None:
+    """Show column/table lineage for a voyage's SQL (Spyglass provenance)."""
+    from kraken.lineage import extract_lineage, lineage_summary
+
+    parsed_params = _parse_params(params)
+    try:
+        compiled = compile_voyage(voyage_name, parsed_params)
+    except VoyageCompileError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        sys.exit(1)
+
+    lineage = extract_lineage(compiled.sql)
+    console.print(f"[bold cyan]Lineage for {compiled.name}[/bold cyan] — {lineage_summary(compiled.sql)}")
+    console.print(f"[bold]Source tables:[/bold] {', '.join(lineage['tables']) or '—'}")
+
+    columns = lineage.get("columns", [])
+    if columns:
+        table = Table(title="Column Provenance", show_header=True, header_style="bold magenta")
+        table.add_column("Column", style="cyan")
+        table.add_column("Source(s)", style="yellow")
+        for col in columns:
+            table.add_row(col.get("column", ""), ", ".join(col.get("sources", [])))
+        console.print(table)
+    console.print(f"[dim]engine: {lineage.get('engine')}[/dim]")
 
 
 # ── bench command ────────────────────────────────────────────────────────────
@@ -163,12 +202,11 @@ def voyage_compile(voyage_name: str, params: str | None) -> None:
 @click.option("--params", default=None, help="JSON params for the voyage")
 def bench(voyage_name: str, params: str | None) -> None:
     """Bench-O-Bot — compare KRAKEN vs direct-MCP for a voyage."""
-    from kraken.bench import bench_voyage, bench_report
+    from kraken.bench import bench_report, bench_voyage
 
     parsed_params = _parse_params(params)
     console.print(f"[bold cyan]Bench-O-Bot:[/bold cyan] benchmarking [bold]{voyage_name}[/bold]...")
 
-    import asyncio
     try:
         result = asyncio.run(bench_voyage(voyage_name, parsed_params))
         console.print(bench_report(result))
@@ -177,10 +215,22 @@ def bench(voyage_name: str, params: str | None) -> None:
         sys.exit(1)
 
 
+# ── webhook commands ──────────────────────────────────────────────────────────
+
+@cli.command("webhook:serve")
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", default=9000, show_default=True)
+def webhook_serve(host: str, port: int) -> None:
+    """Start the KRAKEN webhook receiver (HMAC-validated ingestion)."""
+    from kraken.webhook_receiver import serve
+    console.print(f"[bold green]Starting webhook receiver[/bold green] on {host}:{port}")
+    serve(port=port, host=host)
+
+
 # ── api commands ──────────────────────────────────────────────────────────────
 
 @cli.command("api:serve")
-@click.option("--host", default="0.0.0.0", show_default=True)
+@click.option("--host", default="127.0.0.1", show_default=True)
 @click.option("--port", default=8000, show_default=True)
 @click.option("--reload", is_flag=True, help="Enable hot reload (dev only)")
 def api_serve(host: str, port: int, reload: bool) -> None:

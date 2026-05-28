@@ -1,0 +1,54 @@
+{
+  "voyage": "stuck_sprint",
+  "voyage_id": "demo-v3-sprint-001",
+  "params": {
+    "team_id": "eng-platform",
+    "sprint_id": "S-47",
+    "blocked_days_threshold": 2
+  },
+  "rows": [
+    {
+      "ticket_id": "ENG-2341",
+      "title": "Migrate auth service to new credential store",
+      "assignee": "marcus-wright",
+      "status": "In Progress",
+      "blocked_days": 4,
+      "blocker_description": "Waiting on infra team to provision Vault namespace",
+      "blocker_team": "infrastructure",
+      "story_points": 8,
+      "sprint_day": 6,
+      "days_remaining": 4,
+      "risk_level": "HIGH"
+    },
+    {
+      "ticket_id": "ENG-2358",
+      "title": "Add OpenTelemetry spans to webhook receiver",
+      "assignee": "priya-singh",
+      "status": "In Review",
+      "blocked_days": 3,
+      "blocker_description": "PR has 0 reviews — reviewers on PTO",
+      "blocker_team": "eng-platform",
+      "story_points": 3,
+      "sprint_day": 6,
+      "days_remaining": 4,
+      "risk_level": "MEDIUM"
+    },
+    {
+      "ticket_id": "ENG-2362",
+      "title": "Fix N+1 query regression in customer dashboard",
+      "assignee": "alex-kim",
+      "status": "Blocked",
+      "blocked_days": 2,
+      "blocker_description": "Depends on ENG-2341 credential store migration",
+      "blocker_team": "infrastructure",
+      "story_points": 5,
+      "sprint_day": 6,
+      "days_remaining": 4,
+      "risk_level": "HIGH"
+    }
+  ],
+  "row_count": 3,
+  "cache_hit": false,
+  "latency_ms": 389.4,
+  "sources_queried": ["linear", "github", "datadog"]
+}

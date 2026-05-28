@@ -6,10 +6,8 @@ interface VoyageCardProps {
 
 const STATUS_STYLES: Record<VoyageResult["status"], string> = {
   done: "bg-[var(--color-green)]/10 text-[var(--color-green)] border-[var(--color-green)]/30",
-  running:
-    "bg-[var(--color-amber)]/10 text-[var(--color-amber)] border-[var(--color-amber)]/30",
-  failed:
-    "bg-[var(--color-coral)]/10 text-[var(--color-coral)] border-[var(--color-coral)]/30",
+  running: "bg-[var(--color-amber)]/10 text-[var(--color-amber)] border-[var(--color-amber)]/30",
+  failed: "bg-[var(--color-coral)]/10 text-[var(--color-coral)] border-[var(--color-coral)]/30",
   pending:
     "bg-[var(--color-text-muted)]/10 text-[var(--color-text-muted)] border-[var(--color-text-muted)]/30",
 };
@@ -72,9 +70,7 @@ export function VoyageCard({ voyage }: VoyageCardProps) {
         </div>
         <div className="col-span-2">
           <dt className="text-[var(--color-text-muted)]">Executed</dt>
-          <dd className="text-[var(--color-text-primary)]">
-            {relativeTime(voyage.created_at)}
-          </dd>
+          <dd className="text-[var(--color-text-primary)]">{relativeTime(voyage.created_at)}</dd>
         </div>
       </dl>
 

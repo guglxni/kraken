@@ -17,9 +17,8 @@ import hashlib
 import hmac
 import json
 import os
-import tempfile
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -224,7 +223,6 @@ class TestWebhooksDeliveriesTable:
 
     def test_content_length_matches_payload(self) -> None:
         """Verify content_length_bytes matches the actual payload byte length."""
-        payload_bytes = _VALID_DELIVERY_ROW["payload"].encode("utf-8")
         # content_length_bytes in our fixture is intentionally ~256 (approximation)
         # In production the receiver sets it to len(body) exactly.
         assert _VALID_DELIVERY_ROW["content_length_bytes"] > 0
@@ -475,7 +473,7 @@ class TestWebhookReceiverEndpoints:
             )
             assert resp.status_code == 202
 
-        lines = [l for l in webhooks_file.read_text().strip().split("\n") if l]
+        lines = [ln for ln in webhooks_file.read_text().strip().split("\n") if ln]
         assert len(lines) == 3
         for line in lines:
             _assert_delivery_row_schema(json.loads(line))

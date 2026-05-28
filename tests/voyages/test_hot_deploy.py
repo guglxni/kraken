@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from kraken.voyages.compiler import compile_voyage, validate_voyage
 
 

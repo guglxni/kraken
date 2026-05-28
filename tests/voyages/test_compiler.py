@@ -16,7 +16,6 @@ from kraken.voyages.compiler import (
     validate_voyage,
 )
 
-
 VOYAGE_NAMES = [
     "exec_escalation",
     "hot_deploy",
@@ -137,8 +136,9 @@ def test_hot_deploy_latest_default() -> None:
 
 def test_exec_escalation_is_external_j2() -> None:
     """Hero voyage uses external .sql.j2 template, not inline SQL."""
-    import yaml
     from pathlib import Path
+
+    import yaml
     spec = yaml.safe_load(
         (Path(__file__).parent.parent.parent / "kraken" / "voyages" / "exec_escalation.yaml")
         .read_text()

@@ -14,7 +14,6 @@ import uuid
 from typing import Any
 
 import structlog
-from crewai import Agent, Crew, Task
 from crewai.flow.flow import Flow, listen, start
 
 from kraken.blackboard import get_blackboard
@@ -25,6 +24,7 @@ from kraken.models import (
     Plan,
     VoyageKind,
 )
+from kraken.reef_memory import get_reef
 from kraken.voyages.compiler import VoyageCompileError, compile_voyage
 
 logger = structlog.get_logger(__name__)
@@ -33,8 +33,9 @@ logger = structlog.get_logger(__name__)
 
 def _load_agent_spec(name: str) -> dict[str, Any]:
     """Load agent YAML spec from agents/{name}/agent.yaml."""
-    import yaml
     from pathlib import Path
+
+    import yaml
 
     path = Path(__file__).parent.parent / "agents" / name / "agent.yaml"
     if not path.exists():
@@ -76,7 +77,7 @@ async def run_voyage(
             kind="error",
             payload={"error": str(exc), "voyage": voyage_name},
         )
-        bb.write_finding(finding)
+        await bb.awrite_finding(finding)
         return finding
 
     log.info("voyage_compiled", sources=compiled.required_sources)
@@ -94,11 +95,12 @@ async def run_voyage(
             "latency_ms": result.latency_ms,
             "sources_queried": result.sources_queried,
             "params": params,
+            "sql": compiled.sql,
         },
     )
 
     bb = get_blackboard()
-    bb.write_finding(finding)
+    await bb.awrite_finding(finding)
     log.info("voyage_finding_written", row_count=result.row_count, finding_id=finding.finding_id)
     return finding
 
@@ -107,13 +109,20 @@ async def run_voyage(
 
 async def synthesise_findings(voyage_id: str) -> dict[str, Any]:
     """Read all findings for a voyage and synthesise into a final answer."""
+    # Validate voyage_id is a UUID before embedding in SQL (C-1 SQL injection prevention)
+    try:
+        safe_voyage_id = str(uuid.UUID(voyage_id))
+    except ValueError:
+        logger.warning("synthesise_invalid_voyage_id", voyage_id=voyage_id[:64])
+        return {"voyage_id": voyage_id, "findings": []}
+
     bb = get_blackboard()
-    findings = bb.read_findings(voyage_id=voyage_id)
+    findings = bb.read_findings(voyage_id=safe_voyage_id)
 
     if not findings:
         return {"answer": "No findings produced. Check Coral source connectivity.", "findings": []}
 
-    # Query findings table via Coral for structured synthesis
+    # Query findings table via Coral for structured synthesis — voyage_id is UUID-validated
     synthesis_sql = f"""
     SELECT
       f.agent,
@@ -121,20 +130,20 @@ async def synthesise_findings(voyage_id: str) -> dict[str, Any]:
       f.payload,
       f.created_at
     FROM kraken_findings.findings f
-    WHERE f.voyage_id = '{voyage_id}'
+    WHERE f.voyage_id = '{safe_voyage_id}'
     ORDER BY f.created_at ASC
     """
     try:
-        result = await coral_sql(synthesis_sql, voyage_id=voyage_id, agent_name="quartermaster")
+        result = await coral_sql(synthesis_sql, voyage_id=safe_voyage_id, agent_name="quartermaster")
         return {
-            "voyage_id": voyage_id,
+            "voyage_id": safe_voyage_id,
             "findings": [f.payload for f in findings],
             "rows": result.rows,
         }
     except Exception:
         # Fallback: return raw findings without Coral synthesis
         return {
-            "voyage_id": voyage_id,
+            "voyage_id": safe_voyage_id,
             "findings": [f.payload for f in findings],
         }
 
@@ -182,6 +191,12 @@ class KrakenFlow(Flow):  # type: ignore[misc]
         self.state["voyage_kind"] = kind
         log.info("voyage_classified", kind=kind)
 
+        # Inject Reef exemplars as few-shot context for the Quartermaster
+        exemplars = get_reef().recall(question, top_k=3)
+        if exemplars:
+            log.info("reef_exemplars_injected", count=len(exemplars))
+        self.state["exemplars"] = exemplars
+
         return self.state
 
     @listen(classify)
@@ -210,7 +225,7 @@ class KrakenFlow(Flow):  # type: ignore[misc]
             params=params,
             priority=state.get("priority", "medium"),
         )
-        bb.write_plan(plan)
+        await bb.awrite_plan(plan)
         self.state["plan"] = plan.model_dump()
 
         logger.bind(voyage_id=voyage_id).info(
@@ -229,13 +244,22 @@ class KrakenFlow(Flow):  # type: ignore[misc]
         bb = get_blackboard()
         plan_id = plan_data.get("plan_id", "")
         if plan_id:
-            bb.update_plan_status(plan_id, "running")
+            await bb.aupdate_plan_status(plan_id, "running")
 
         finding = await run_voyage(kind, voyage_id, target, params)
 
         if plan_id:
             status = "done" if finding.kind != "error" else "failed"
-            bb.update_plan_status(plan_id, status)
+            await bb.aupdate_plan_status(plan_id, status)
+
+        # Persist finding in Reef Memory for future exemplar recall
+        if finding.kind != "error":
+            get_reef().store(
+                voyage_id=voyage_id,
+                question=state.get("question", kind),
+                kind=kind,
+                payload=finding.payload,
+            )
 
         self.state["finding"] = finding.model_dump()
         return self.state

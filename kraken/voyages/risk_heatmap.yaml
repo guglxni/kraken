@@ -11,7 +11,7 @@ required_sources:
   - local_codebase
   - linear
   - stripe
-target_agent: quartermaster
+target_agent: helm
 params:
   lookback_days:
     type: integer
@@ -100,7 +100,7 @@ sql: |
         ELSE 'track_in_backlog'
       END                                           AS recommended_action
     FROM osv.vulnerabilities v
-    JOIN local_codebase.dependencies dep
+    INNER JOIN local_codebase.dependencies dep
       ON dep.package_name = v.affected__package__name
     WHERE v.published >= CURRENT_TIMESTAMP - INTERVAL '90 days'
     GROUP BY dep.package_name

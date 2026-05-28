@@ -16,7 +16,6 @@ To re-record cassettes against the live API (requires network access):
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 

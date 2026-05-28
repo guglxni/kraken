@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReefGraph, ReefNode } from "@/lib/types";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // react-force-graph-2d is dynamically imported to avoid SSR issues
 // (it directly accesses `window` during module evaluation).
@@ -72,9 +72,7 @@ export function ReefMap({ graph }: ReefMapProps) {
 
   const handleNodeClick = useCallback((node: object) => {
     const reefNode = node as SelectedNode;
-    setSelectedNode((prev) =>
-      prev?.id === reefNode.id ? null : reefNode
-    );
+    setSelectedNode((prev) => (prev?.id === reefNode.id ? null : reefNode));
   }, []);
 
   // Type-annotated graph data for ForceGraph2D
@@ -146,9 +144,7 @@ export function ReefMap({ graph }: ReefMapProps) {
       {selectedNode && (
         <aside className="absolute top-4 right-4 w-56 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-raise)]/95 backdrop-blur-sm p-4 text-sm">
           <div className="flex items-center justify-between mb-3">
-            <h4 className="font-semibold text-[var(--color-text-primary)]">
-              {selectedNode.label}
-            </h4>
+            <h4 className="font-semibold text-[var(--color-text-primary)]">{selectedNode.label}</h4>
             <button
               type="button"
               onClick={() => setSelectedNode(null)}

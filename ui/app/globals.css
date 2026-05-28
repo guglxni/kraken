@@ -5,21 +5,21 @@
 /* ── Design tokens ─────────────────────────────────────────────────────────── */
 :root {
   /* Brand palette — deep ocean blues + coral accent */
-  --color-surface:       #0a0f1e;
+  --color-surface: #0a0f1e;
   --color-surface-raise: #0d1526;
-  --color-border:        #1e2d45;
-  --color-text-primary:  #e8f0fe;
-  --color-text-muted:    #7a93b4;
-  --color-coral:         #ff6b6b;
-  --color-coral-dim:     #c0392b;
-  --color-teal:          #00cec9;
-  --color-amber:         #fdcb6e;
-  --color-green:         #00b894;
+  --color-border: #1e2d45;
+  --color-text-primary: #e8f0fe;
+  --color-text-muted: #7a93b4;
+  --color-coral: #ff6b6b;
+  --color-coral-dim: #c0392b;
+  --color-teal: #00cec9;
+  --color-amber: #fdcb6e;
+  --color-green: #00b894;
 
   /* Status colours */
-  --color-status-done:    var(--color-green);
+  --color-status-done: var(--color-green);
   --color-status-running: var(--color-amber);
-  --color-status-failed:  var(--color-coral);
+  --color-status-failed: var(--color-coral);
   --color-status-pending: var(--color-text-muted);
 
   /* Spacing scale follows Tailwind defaults; add custom tokens below if needed */

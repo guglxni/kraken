@@ -1,0 +1,108 @@
+name: gmail
+version: 0.1.0
+dsl_version: 3
+description: >
+  Gmail — read-only access to the authenticated user's mailbox via the
+  Google Gmail REST API. Used by KRAKEN's exec-escalation voyage (V6) to
+  detect urgent or hostile inbound emails from key customers, partners, or
+  executives. Requires OAuth2 Google credentials injected via the Supabase
+  credential store at runtime.
+backend: http
+base_url: https://gmail.googleapis.com/gmail/v1/users/me
+
+auth:
+  type: oauth2
+  token_env: GMAIL_OAUTH_TOKEN
+
+tables:
+  # ── messages ────────────────────────────────────────────────────────────────
+  - name: messages
+    description: >
+      One row per Gmail message matching the query. Returns message ID and
+      thread ID only — JOIN to message_details on id to get headers and body.
+      Filter with 'q' using Gmail search operators for targeted retrieval.
+    request:
+      method: GET
+      path: /messages
+    response:
+      rows_path:
+        - messages
+    pagination:
+      mode: cursor
+      cursor_response_path:
+        - nextPageToken
+      cursor_request_param: pageToken
+      page_size:
+        default: 100
+        max: 500
+        query_param: maxResults
+    columns:
+      - name: id
+        type: Utf8
+        description: "Unique Gmail message ID"
+      - name: threadId
+        type: Utf8
+        description: "Gmail thread ID — multiple messages share a thread"
+    filters:
+      - name: q
+        mode: exact
+        operators: ["="]
+        description: >
+          Gmail search query string. Examples:
+          'from:customer@example.com is:unread label:IMPORTANT'
+          'subject:urgent newer_than:1d'
+      - name: labelIds
+        mode: exact
+        operators: ["="]
+        description: "Filter to messages with this label: INBOX, UNREAD, STARRED, SENT, IMPORTANT"
+      - name: maxResults
+        mode: exact
+        operators: ["="]
+        description: "Maximum messages to return (default 100, max 500)"
+
+  # ── message_details ─────────────────────────────────────────────────────────
+  - name: message_details
+    description: >
+      Full headers and body for a single Gmail message. JOIN to messages on
+      id = message_id to enrich the message list with subject, sender, and
+      plain-text body content.
+    request:
+      method: GET
+      path: /messages/{{filter.message_id}}
+      params:
+        format: full
+    response:
+      rows_path: []
+    columns:
+      - name: id
+        type: Utf8
+        description: "Gmail message ID (foreign key to messages.id)"
+      - name: threadId
+        type: Utf8
+        description: "Thread ID"
+      - name: internalDate
+        type: Utf8
+        description: "Message timestamp as Unix epoch milliseconds"
+      - name: sizeEstimate
+        type: Int64
+        description: "Estimated message size in bytes"
+      - name: headers__From
+        type: Utf8
+        description: "Sender email address extracted from message headers"
+      - name: headers__To
+        type: Utf8
+        description: "Recipient email address(es)"
+      - name: headers__Subject
+        type: Utf8
+        description: "Email subject line"
+      - name: headers__Date
+        type: Utf8
+        description: "RFC2822 date header"
+      - name: body__text
+        type: Utf8
+        description: "Plain-text body content (decoded from base64url)"
+    filters:
+      - name: message_id
+        mode: exact
+        operators: ["="]
+        description: "Gmail message ID to fetch full details for (required)"

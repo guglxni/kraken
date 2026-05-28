@@ -10,7 +10,7 @@ required_sources:
   - kraken_findings
   - kraken_plans
   - github
-target_agent: quartermaster
+target_agent: lookout
 params:
   lookback_days:
     type: integer

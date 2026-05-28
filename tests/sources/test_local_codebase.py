@@ -18,11 +18,9 @@ from __future__ import annotations
 
 import json
 import tempfile
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
-
-import pytest
 
 # ---------------------------------------------------------------------------
 # Fixture data — representative JSONL rows for each table

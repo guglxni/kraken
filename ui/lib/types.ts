@@ -45,6 +45,30 @@ export interface ReefGraph {
   links: ReefEdge[];
 }
 
+export interface LineageNode {
+  id: string;
+  label: string;
+  type: string;
+}
+
+export interface LineageEdge {
+  source: string;
+  target: string;
+}
+
+export interface LineageColumn {
+  column: string;
+  sources: string[];
+}
+
+export interface TraceLineage {
+  tables: string[];
+  columns: LineageColumn[];
+  nodes: LineageNode[];
+  edges: LineageEdge[];
+  engine: string;
+}
+
 export interface SpyglassTrace {
   trace_id: string;
   voyage_id: string;
@@ -54,6 +78,28 @@ export interface SpyglassTrace {
   duration_ms: number;
   row_count: number;
   created_at: string;
+  lineage?: TraceLineage;
+}
+
+export interface BenchSide {
+  approach: string;
+  latency_ms: number;
+  sources_queried: string[];
+  row_count: number;
+  token_count: number;
+  tool_call_count: number;
+  error: string | null;
+}
+
+export interface BenchResult {
+  voyage_name: string;
+  kraken: BenchSide;
+  direct_mcp: BenchSide;
+  latency_winner: string;
+  coverage_winner: string;
+  verdict: string;
+  latency_speedup: number;
+  direct_mcp_simulated: boolean;
 }
 
 export interface ApiResponse<T> {

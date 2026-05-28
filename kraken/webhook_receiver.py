@@ -58,9 +58,11 @@ app = FastAPI(
     title="KRAKEN Webhook Receiver",
     description="HMAC-validated webhook ingestion for Coral webhooks source",
     version="0.1.0",
-    docs_url="/debug/docs",
+    docs_url=None,
     redoc_url=None,
 )
+
+_MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MB
 
 
 def _get_webhooks_path() -> Path:
@@ -150,18 +152,44 @@ async def receive_webhook(
 
     Returns HTTP 202 on success, HTTP 403 on signature failure.
     """
-    # Read raw body first — must happen before any other body parsing
+    # Reject oversized payloads as early as possible: check the declared
+    # Content-Length BEFORE buffering, so a hostile large body is not read
+    # into memory (F-7). Fall back to a post-read check for chunked/absent
+    # Content-Length requests.
+    declared_len = request.headers.get("content-length")
+    if declared_len is not None:
+        try:
+            if int(declared_len) > _MAX_BODY_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"Payload exceeds maximum size of {_MAX_BODY_BYTES // 1024} KB",
+                )
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid Content-Length header",
+            ) from None
+
     body = await request.body()
+    if len(body) > _MAX_BODY_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Payload exceeds maximum size of {_MAX_BODY_BYTES // 1024} KB",
+        )
 
     # Determine which signature header and algorithm to use for this source
     source_lower = source.lower()
     sig_config = _SOURCE_SIG_HEADERS.get(source_lower)
     if sig_config is None:
-        # Unknown source — still persist but mark as unverified
         logger.warning("webhook_unknown_source", source=source)
-        sig_header_name, algorithm = "x-webhook-signature", "sha256"
-    else:
-        sig_header_name, algorithm = sig_config
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Unknown webhook source '{source}'. "
+                f"Supported: {', '.join(_SOURCE_SIG_HEADERS)}"
+            ),
+        )
+    sig_header_name, algorithm = sig_config
 
     # Extract the signature header value
     signature_value = request.headers.get(sig_header_name, "")
@@ -231,18 +259,18 @@ async def receive_webhook(
 
 @app.get("/health", summary="Health check")
 async def health() -> dict[str, str]:
-    """Return 200 OK when the receiver is running."""
-    path = _get_webhooks_path()
-    return {
-        "status": "ok",
-        "webhooks_path": str(path),
-    }
+    """Return 200 OK when the receiver is running.
+
+    Does not disclose the on-disk delivery path (F-3) — that is internal
+    configuration and the receiver is reachable via the public API mount.
+    """
+    return {"status": "ok", "service": "kraken-webhooks"}
 
 
 # ── Entrypoint ─────────────────────────────────────────────────────────────────
 
 
-def serve(port: int = _DEFAULT_PORT, host: str = "0.0.0.0") -> None:  # noqa: S104
+def serve(port: int = _DEFAULT_PORT, host: str = "127.0.0.1") -> None:
     """Start the webhook receiver. Called by kraken CLI webhook:serve command."""
     import uvicorn  # imported here so the module can be imported without uvicorn
 

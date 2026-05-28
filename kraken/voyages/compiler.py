@@ -26,9 +26,66 @@ logger = structlog.get_logger(__name__)
 
 _VOYAGES_DIR = Path(__file__).parent
 
+# Voyage names map directly onto filenames, so constrain them to a strict
+# charset BEFORE any path join — this defends every caller (compile, ask,
+# chat, CLI) against path traversal, not just the API endpoints that keep
+# their own allowlist (F-10).
+_VOYAGE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
+
 
 class VoyageCompileError(Exception):
     """Raised when a voyage fails to compile. Message always includes voyage name."""
+
+
+_TYPE_COERCIONS: dict[str, type] = {
+    "int": int,
+    "integer": int,
+    "float": float,
+    "number": float,
+    "str": str,
+    "string": str,
+    "bool": bool,
+    "boolean": bool,
+}
+
+
+_SQL_INJECTION_PATTERNS = ("--", "/*", "*/", "xp_", "EXEC(", "EXECUTE(")
+
+
+def _coerce_param(value: Any, type_hint: str, param_name: str, voyage: str) -> Any:
+    """Cast a param value to the type declared in the voyage YAML.
+
+    Fail closed: an unrecognized type hint is rejected rather than passed
+    through unsanitized, since unquoted interpolation of a raw value would
+    otherwise be an injection vector (the Jinja2 environment is not sandboxed).
+    """
+    coerce = _TYPE_COERCIONS.get(type_hint.lower())
+    if coerce is None:
+        raise VoyageCompileError(
+            f"Voyage '{voyage}' param '{param_name}': unknown type '{type_hint}'. "
+            f"Declare one of: {', '.join(sorted(set(_TYPE_COERCIONS)))}"
+        )
+    try:
+        if coerce is bool:
+            if isinstance(value, str):
+                return value.lower() not in ("0", "false", "no", "")
+            return bool(value)
+        if coerce is str:
+            result = str(value)
+            upper = result.upper()
+            for pattern in _SQL_INJECTION_PATTERNS:
+                if pattern.upper() in upper:
+                    raise VoyageCompileError(
+                        f"Voyage '{voyage}' param '{param_name}': value contains disallowed pattern '{pattern}'"
+                    )
+            return result.replace("'", "''")
+        return coerce(value)
+    except VoyageCompileError:
+        raise
+    except (ValueError, TypeError) as exc:
+        raise VoyageCompileError(
+            f"Voyage '{voyage}' param '{param_name}': cannot coerce {value!r} to {type_hint}"
+        ) from exc
 
 
 def _resolve_sql_template(spec: dict[str, Any], voyage_path: Path) -> str:
@@ -64,6 +121,13 @@ def compile_voyage(name: str, params: dict[str, Any]) -> CompiledVoyage:
     Normalises the voyage name: both 'hot_deploy' and 'hot-deploy' resolve to
     the same file (underscores and hyphens are interchangeable in voyage names).
     """
+    # Reject anything that is not a bare voyage slug before touching the
+    # filesystem — blocks '../', absolute paths, and NUL/separator tricks.
+    if not _VOYAGE_NAME_RE.match(name):
+        raise VoyageCompileError(
+            f"Invalid voyage name '{name[:64]}' — must match {_VOYAGE_NAME_RE.pattern}"
+        )
+
     # Normalise separators: allow both hot-deploy and hot_deploy as input
     normalised = name.replace("-", "_")
     path = _VOYAGES_DIR / f"{normalised}.yaml"
@@ -95,13 +159,15 @@ def compile_voyage(name: str, params: dict[str, Any]) -> CompiledVoyage:
     merged: dict[str, Any] = {}
     for param_name, param_def in param_defs.items():
         if param_name in params:
-            merged[param_name] = params[param_name]
+            raw_value = params[param_name]
         elif "default" in param_def:
-            merged[param_name] = param_def["default"]
+            raw_value = param_def["default"]
         else:
             raise VoyageCompileError(
                 f"Voyage '{name}' requires param '{param_name}' (no default provided)"
             )
+        type_hint = param_def.get("type", "")
+        merged[param_name] = _coerce_param(raw_value, type_hint, param_name, name) if type_hint else raw_value
 
     sql_template = _resolve_sql_template(spec, path)
 

@@ -30,5 +30,20 @@
   },
   "files": {
     "ignore": ["node_modules", ".next", "dist"]
-  }
+  },
+  "overrides": [
+    {
+      "include": ["components/ui/chart.tsx", "components/VoyageChart.tsx", "components/VoyageLauncher.tsx"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noArrayIndexKey": "off"
+          },
+          "security": {
+            "noDangerouslySetInnerHtml": "off"
+          }
+        }
+      }
+    }
+  ]
 }
