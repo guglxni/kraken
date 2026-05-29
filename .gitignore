@@ -54,3 +54,12 @@ files.zip
 
 # Build
 target/
+
+# Claude Code runtime logs (generated, no codebase effect)
+.claude/*.log
+
+# Graphify knowledge-graph output (generated visualization tool)
+graphify-out/
+
+# TypeScript incremental build cache
+ui/tsconfig.tsbuildinfo
